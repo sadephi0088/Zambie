@@ -11,7 +11,7 @@ bot = telebot.TeleBot(TOKEN)
 
 mozahem_users = set()
 doshaman_users = set()
-group_members = set()
+group_members = set()  # اینجا ذخیره اعضای گروه
 anti_link_enabled = set()
 group_lock_enabled = set()
 
@@ -98,10 +98,9 @@ help_text = """⚔ **《 راهنما زامبی-محافظت از شما 》** 
 ⚙️ **مدیریت:**
   /adminn    ▶ ارتقای فرد به مدیر ربات (ریپلای کن)
   /dadminn   ▶ حذف فرد از مدیریت (ریپلای کن)
-  /idd       ▶ نمایش اطلاعات کاربر (ریپلای کن)
 ——————————————————————
 ⚠️ **فقط با ریپلای روی پیام هدف دستورها رو بزن!**
-🩸 **#زامبی_نگهبان نسخه 1.1.0**
+🩸 **#زامبی_نگهبان نسخه 1.2.0**
 """
 
 def is_admin(user_id):
@@ -175,9 +174,9 @@ def bann(message):
 def mutee(message):
     if message.reply_to_message and is_admin(message.from_user.id):
         try:
-            # سکوت دائمی بدون تایمر
+            # سکوت دائمی (تا وقتی لغو نشه)
             bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=False)
-            bot.reply_to(message, "🔇 کاربر سکوت دائمی شد.")
+            bot.reply_to(message, "🔇 کاربر ساکت شد (محدودیت دائمی).")
         except Exception:
             bot.reply_to(message, "❌ خطا در سکوت.")
 
@@ -285,19 +284,23 @@ def unlock_group(message):
             group_lock_enabled.discard(message.chat.id)
         bot.reply_to(message, "🔓 قفل گروه باز شد؛ همه می‌توانند پیام ارسال کنند.")
 
-# حذف لینک در پیام‌ها و قفل گروه
+# حذف لینک در پیام‌ها و قفل گروه و ذخیره اعضا
 @bot.message_handler(func=lambda message: True)
 def check_links_and_locks(message):
+    # ذخیره کردن آیدی یوزر در مجموعه اعضای گروه
     if message.chat.type in ['group', 'supergroup']:
+        group_members.add(message.from_user.id)
+        
+        # جلوگیری از ارسال لینک در گروه‌های فعال ضد لینک
         if message.chat.id in anti_link_enabled:
-            if message.text:
-                if any(word in message.text.lower() for word in ['http://', 'https://', 't.me/', 'telegram.me/', 'www.']):
-                    try:
-                        bot.delete_message(message.chat.id, message.message_id)
-                        bot.send_message(message.chat.id, f"⚠️ لینک ممنوع است، {message.from_user.first_name} عزیز!", reply_to_message_id=message.message_id)
-                        return
-                    except Exception:
-                        pass
+            if any(word in message.text.lower() for word in ['http://', 'https://', 't.me/', 'telegram.me/', 'www.']):
+                try:
+                    bot.delete_message(message.chat.id, message.message_id)
+                    bot.send_message(message.chat.id, f"⚠️ لینک ممنوع است، {message.from_user.first_name} عزیز!", reply_to_message_id=message.message_id)
+                    return
+                except Exception:
+                    pass
+        # قفل گروه - فقط مدیران اجازه ارسال دارند
         if message.chat.id in group_lock_enabled:
             if not is_admin(message.from_user.id):
                 try:
@@ -305,13 +308,15 @@ def check_links_and_locks(message):
                 except Exception:
                     pass
                 return
+
+    # واکنش به مزاحم و دشمن با پیام رندوم
     uid = message.from_user.id
     if uid in mozahem_users:
         bot.reply_to(message, random.choice(mozahem_msgs))
     elif uid in doshaman_users:
         bot.reply_to(message, random.choice(doshaman_msgs))
 
-# دستور /idd - نمایش اطلاعات کاربر
+# دستور /idd - اطلاعات کاربر
 @bot.message_handler(commands=['idd'])
 def user_info(message):
     if not is_admin(message.from_user.id):
