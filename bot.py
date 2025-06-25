@@ -11,7 +11,7 @@ bot = telebot.TeleBot(TOKEN)
 
 mozahem_users = set()
 doshaman_users = set()
-group_members = set()  # اینجا ذخیره اعضای گروه
+group_members = set()
 anti_link_enabled = set()
 group_lock_enabled = set()
 
@@ -98,9 +98,10 @@ help_text = """⚔ **《 راهنما زامبی-محافظت از شما 》** 
 ⚙️ **مدیریت:**
   /adminn    ▶ ارتقای فرد به مدیر ربات (ریپلای کن)
   /dadminn   ▶ حذف فرد از مدیریت (ریپلای کن)
+  /idd       ▶ نمایش اطلاعات کاربر (ریپلای کن)
 ——————————————————————
 ⚠️ **فقط با ریپلای روی پیام هدف دستورها رو بزن!**
-🩸 **#زامبی_نگهبان نسخه 1.2.0**
+🩸 **#زامبی_نگهبان نسخه 1.1.0**
 """
 
 def is_admin(user_id):
@@ -174,9 +175,16 @@ def bann(message):
 def mutee(message):
     if message.reply_to_message and is_admin(message.from_user.id):
         try:
-            # سکوت دائمی (تا وقتی لغو نشه)
-            bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=False)
-            bot.reply_to(message, "🔇 کاربر ساکت شد (محدودیت دائمی).")
+            # سکوت دائمی بدون تایمر
+            bot.restrict_chat_member(
+                message.chat.id,
+                message.reply_to_message.from_user.id,
+                can_send_messages=False,
+                can_send_media_messages=False,
+                can_send_other_messages=False,
+                can_add_web_page_previews=False
+            )
+            bot.reply_to(message, "🔇 کاربر ساکت شد (دائمی).")
         except Exception:
             bot.reply_to(message, "❌ خطا در سکوت.")
 
@@ -184,7 +192,14 @@ def mutee(message):
 def unmutt(message):
     if message.reply_to_message and is_admin(message.from_user.id):
         try:
-            bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=True)
+            bot.restrict_chat_member(
+                message.chat.id,
+                message.reply_to_message.from_user.id,
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True
+            )
             bot.reply_to(message, "🔊 سکوت برداشته شد.")
         except Exception:
             bot.reply_to(message, "❌ خطا در آزادسازی.")
@@ -207,6 +222,12 @@ def unpin(message):
         except Exception:
             bot.reply_to(message, "❌ خطا در حذف سنجاق.")
 
+# ذخیره اعضای گروه که پیام دادن برای تگ کردن
+@bot.message_handler(func=lambda message: True)
+def track_group_members(message):
+    if message.chat.type in ['group', 'supergroup']:
+        group_members.add(message.from_user.id)
+
 # تگ کردن اعضای گروه
 def tagging_thread():
     global tagging, tagged_message_ids, tag_text, tag_chat_id
@@ -216,13 +237,18 @@ def tagging_thread():
             if not tagging:
                 break
             try:
-                msg = bot.send_message(tag_chat_id, f"👤 [{user_id}](tg://user?id={user_id}) {tag_text}", parse_mode='Markdown')
+                msg = bot.send_message(
+                    tag_chat_id,
+                    f'👤 <a href="tg://user?id={user_id}">عضو</a> {tag_text}',
+                    parse_mode='HTML'
+                )
                 tagged_message_ids.append(msg.message_id)
-                time.sleep(0.5)
-            except Exception:
+                time.sleep(0.7)
+            except Exception as e:
+                print(f"Error tagging user {user_id}: {e}")
                 continue
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Error in tagging_thread: {e}")
     tagging = False
 
 @bot.message_handler(commands=['tagg'])
@@ -284,23 +310,18 @@ def unlock_group(message):
             group_lock_enabled.discard(message.chat.id)
         bot.reply_to(message, "🔓 قفل گروه باز شد؛ همه می‌توانند پیام ارسال کنند.")
 
-# حذف لینک در پیام‌ها و قفل گروه و ذخیره اعضا
+# حذف لینک در پیام‌ها و بررسی قفل گروه و واکنش به مزاحم و دشمن
 @bot.message_handler(func=lambda message: True)
 def check_links_and_locks(message):
-    # ذخیره کردن آیدی یوزر در مجموعه اعضای گروه
     if message.chat.type in ['group', 'supergroup']:
-        group_members.add(message.from_user.id)
-        
-        # جلوگیری از ارسال لینک در گروه‌های فعال ضد لینک
         if message.chat.id in anti_link_enabled:
-            if any(word in message.text.lower() for word in ['http://', 'https://', 't.me/', 'telegram.me/', 'www.']):
+            if message.text and any(word in message.text.lower() for word in ['http://', 'https://', 't.me/', 'telegram.me/', 'www.']):
                 try:
                     bot.delete_message(message.chat.id, message.message_id)
                     bot.send_message(message.chat.id, f"⚠️ لینک ممنوع است، {message.from_user.first_name} عزیز!", reply_to_message_id=message.message_id)
                     return
                 except Exception:
                     pass
-        # قفل گروه - فقط مدیران اجازه ارسال دارند
         if message.chat.id in group_lock_enabled:
             if not is_admin(message.from_user.id):
                 try:
@@ -308,40 +329,10 @@ def check_links_and_locks(message):
                 except Exception:
                     pass
                 return
-
-    # واکنش به مزاحم و دشمن با پیام رندوم
     uid = message.from_user.id
     if uid in mozahem_users:
         bot.reply_to(message, random.choice(mozahem_msgs))
     elif uid in doshaman_users:
         bot.reply_to(message, random.choice(doshaman_msgs))
-
-# دستور /idd - اطلاعات کاربر
-@bot.message_handler(commands=['idd'])
-def user_info(message):
-    if not is_admin(message.from_user.id):
-        return
-    if message.reply_to_message:
-        user = message.reply_to_message.from_user
-        user_id = user.id
-        user_name = f"@{user.username}" if user.username else "(ندارد)"
-        first_name = user.first_name or ""
-        last_name = user.last_name or ""
-        full_name = (first_name + " " + last_name).strip()
-        text = f"📌 اطلاعات کاربر:\n" \
-               f"👤 نام: {full_name}\n" \
-               f"🆔 آیدی عددی: `{user_id}`\n" \
-               f"🏷 نام کاربری: {user_name}\n"
-        try:
-            photos = bot.get_user_profile_photos(user_id)
-            if photos.total_count > 0:
-                photo = photos.photos[0][-1]
-                bot.send_photo(message.chat.id, photo.file_id, caption=text, reply_to_message_id=message.message_id)
-            else:
-                bot.reply_to(message, text)
-        except Exception:
-            bot.reply_to(message, text)
-    else:
-        bot.reply_to(message, "❌ لطفا روی پیام فرد مورد نظر ریپلای کن.")
 
 bot.infinity_polling()
