@@ -1,16 +1,15 @@
 import telebot
 import time
+import random
 
 TOKEN = '8049022187:AAEoR_IorwWZ8KaH_UMvCo2fa1LjTqhnlWY'
 OWNER_ID = 7341748124
 ADMINS = {OWNER_ID}
+ENEMIES = set()
 
 bot = telebot.TeleBot(TOKEN)
 
-def is_admin(user_id):
-    return user_id in ADMINS
-
-# 💬 پنل راهنما با متن خودت
+# متن پنل راهنما
 help_text = """⚔️ 《 راهنمای ربات محافظتی - نسخه 1.0 》 ⚔️
 ——————————————————————
 🛡️ دستورات اصلی: [محافظت از شما]🩸
@@ -39,105 +38,138 @@ help_text = """⚔️ 《 راهنمای ربات محافظتی - نسخه 1.0 
 برای لغو دستورات، ابتدای همان دستور بنویسید "d" [مثال /sik >> بن از گروه] [ /dsik لغو بن از گروه].
 """
 
+# فحش‌ها برای دشمن
+enemy_msgs = [
+    "خفه شو دیگه🤣", "سیکتر کن😅", "نبینمت اسکول😂", "برو بچه کیونی🤣🤣",
+    "سگ پدر😂", "روانی ریقو🤣", "شاشو😂", "از اینجا تا اونجا توی کو‌..نت😂",
+    "ریدم دهنت...😂", "گمشو دیگه بهت خندیدم پرو شدی", "سگو کی باشی😂😂😅",
+    "اسکول یه وری", "ریدم تو قیافت", "شاشیدم دهنت😂"
+]
+
+def is_admin(user_id):
+    return user_id in ADMINS
+
+# دستور /help فقط برای مدیران
 @bot.message_handler(commands=['help'])
-def send_help(message):
+def show_help(message):
     if is_admin(message.from_user.id):
         bot.reply_to(message, help_text)
 
-# دستور اول: /d
+# /d دستور
 @bot.message_handler(commands=['d'])
-def d_handler(message):
-    if not is_admin(message.from_user.id):
-        return
-
-    msg_text = message.text[3:].strip()
-    if not msg_text:
-        bot.reply_to(message, "❌ لطفاً یک متن بنویس. مثال: `/d سلام خوبی؟`", parse_mode='Markdown')
-        return
-
-    try:
-        bot.delete_message(message.chat.id, message.message_id)
-    except Exception:
-        pass
-
+def d_send(message):
+    text = message.text[3:].strip()
+    if not text: return
+    try: bot.delete_message(message.chat.id, message.message_id)
+    except: pass
     if message.reply_to_message:
-        bot.send_message(message.chat.id, msg_text, reply_to_message_id=message.reply_to_message.message_id)
+        bot.send_message(message.chat.id, text, reply_to_message_id=message.reply_to_message.message_id)
     else:
-        bot.send_message(message.chat.id, msg_text)
+        bot.send_message(message.chat.id, text)
 
-# دستور دوم: /spam
+# /spam دستور
 @bot.message_handler(commands=['spam'])
-def spam_handler(message):
-    if not is_admin(message.from_user.id):
-        return
-
+def spam_message(message):
+    if not is_admin(message.from_user.id): return
+    parts = message.text.split(' ', 2)
+    if len(parts) < 3: return
     try:
-        args = message.text.split(" ", 2)
-        count = int(args[1])
-        text = args[2]
-    except (IndexError, ValueError):
-        bot.reply_to(message, "❌ فرمت درست نیست. مثال: `/spam 3 سلام`", parse_mode='Markdown')
-        return
+        count = int(parts[1])
+        if count > 100: count = 100
+    except: return
+    text = parts[2]
+    for _ in range(count):
+        if message.reply_to_message:
+            bot.send_message(message.chat.id, text, reply_to_message_id=message.reply_to_message.message_id)
+        else:
+            bot.send_message(message.chat.id, text)
+        time.sleep(0.3)
 
-    if count > 100:
-        bot.reply_to(message, "❌ حداکثر 100 پیام مجاز است.")
-        return
-
+# /doshman → دشمن کردن
+@bot.message_handler(commands=['doshman'])
+def doshman_add(message):
     if message.reply_to_message:
-        for _ in range(count):
-            try:
-                bot.send_message(message.chat.id, text, reply_to_message_id=message.reply_to_message.message_id)
-                time.sleep(0.3)
-            except Exception:
-                continue
-    else:
-        for _ in range(count):
-            try:
-                bot.send_message(message.chat.id, text)
-                time.sleep(0.3)
-            except Exception:
-                continue
+        ENEMIES.add(message.reply_to_message.from_user.id)
+        bot.reply_to(message, "❗ دشمن فعال شد.")
 
-# دستور چهارم: /mutee (سکوت دائمی روی کاربر ریپلای شده)
+# /ddoshman → حذف دشمن
+@bot.message_handler(commands=['ddoshman'])
+def doshman_remove(message):
+    if message.reply_to_message:
+        ENEMIES.discard(message.reply_to_message.from_user.id)
+        bot.reply_to(message, "✅ دشمن حذف شد.")
+
+# /mutee سکوت
 @bot.message_handler(commands=['mutee'])
-def mutee_handler(message):
-    if not is_admin(message.from_user.id):
-        return
-    if message.reply_to_message:
+def mutee_user(message):
+    if message.reply_to_message and is_admin(message.from_user.id):
         try:
-            bot.restrict_chat_member(
-                message.chat.id,
-                message.reply_to_message.from_user.id,
-                can_send_messages=False,
-                can_send_media_messages=False,
-                can_send_other_messages=False,
-                can_add_web_page_previews=False
-            )
-            bot.reply_to(message, "🔇 کاربر سکوت دائمی شد.")
-        except Exception:
-            bot.reply_to(message, "❌ خطا در سکوت کاربر.")
-    else:
-        bot.reply_to(message, "❌ لطفاً روی پیام فرد مورد نظر ریپلای کن.")
+            bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=False)
+            bot.reply_to(message, "🔇 کاربر در سکوت قرار گرفت.")
+        except:
+            bot.reply_to(message, "❌ خطا در محدودسازی.")
 
-# دستور پنجم: /dmutee (لغو سکوت کاربر ریپلای شده)
+# /dmutee رفع سکوت
 @bot.message_handler(commands=['dmutee'])
-def dmutee_handler(message):
-    if not is_admin(message.from_user.id):
-        return
-    if message.reply_to_message:
+def unmute_user(message):
+    if message.reply_to_message and is_admin(message.from_user.id):
         try:
-            bot.restrict_chat_member(
-                message.chat.id,
-                message.reply_to_message.from_user.id,
-                can_send_messages=True,
-                can_send_media_messages=True,
-                can_send_other_messages=True,
-                can_add_web_page_previews=True
-            )
-            bot.reply_to(message, "🔊 سکوت کاربر برداشته شد.")
-        except Exception:
-            bot.reply_to(message, "❌ خطا در آزادسازی سکوت کاربر.")
-    else:
-        bot.reply_to(message, "❌ لطفاً روی پیام فرد مورد نظر ریپلای کن.")
+            bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=True)
+            bot.reply_to(message, "🔊 سکوت برداشته شد.")
+        except:
+            bot.reply_to(message, "❌ خطا در آزادسازی.")
+
+# /sik → اخراج کاربر
+@bot.message_handler(commands=['sik'])
+def kick_user(message):
+    if message.reply_to_message and is_admin(message.from_user.id):
+        try:
+            bot.kick_chat_member(message.chat.id, message.reply_to_message.from_user.id)
+            bot.reply_to(message, "⛔ کاربر از گروه حذف شد.")
+        except:
+            bot.reply_to(message, "❌ خطا در اخراج کاربر.")
+
+# /dsik → رفع اخراج
+@bot.message_handler(commands=['dsik'])
+def unban_user(message):
+    if message.reply_to_message and is_admin(message.from_user.id):
+        try:
+            bot.unban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
+            bot.reply_to(message, "✅ از لیست بن‌شدگان خارج شد.")
+        except:
+            bot.reply_to(message, "❌ خطا در آزادسازی.")
+
+# /idd → اطلاعات شخص
+@bot.message_handler(commands=['idd'])
+def idd_user(message):
+    if not is_admin(message.from_user.id): return
+    if message.reply_to_message:
+        user = message.reply_to_message.from_user
+        name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+        username = f"@{user.username}" if user.username else "ندارد"
+        bot.reply_to(message, f"📌 اطلاعات کاربر:\n👤 نام: {name}\n🆔 آیدی عددی: `{user.id}`\n🏷 نام کاربری: {username}", parse_mode='Markdown')
+
+# /m معرفی محافظ
+@bot.message_handler(commands=['m'])
+def introduce_myself(message):
+    if message.reply_to_message and is_admin(message.from_user.id):
+        intro = (
+            "**🛡️ من محافظ اختصاصی این فردم!**\n"
+            "بهش دست بزنی، نابودت می‌کنم...\n"
+            "حواستو جمع کن، چون من همیشه در سایه‌ها هستم و نظارت می‌کنم 👁‍🗨\n"
+            "**یک قدم اشتباه، آخرین قدمته...**\n"
+            "#دستیار_محافظتی"
+        )
+        bot.reply_to(message.reply_to_message, intro, parse_mode='Markdown')
+
+# واکنش به پیام دشمنان
+@bot.message_handler(func=lambda m: True)
+def reply_to_enemy(m):
+    if m.from_user.id in ENEMIES:
+        try:
+            msg = random.choice(enemy_msgs)
+            bot.reply_to(m, msg)
+        except:
+            pass
 
 bot.infinity_polling()
