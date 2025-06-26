@@ -10,29 +10,29 @@ bot = telebot.TeleBot(TOKEN)
 def is_admin(user_id):
     return user_id in ADMINS
 
-# 💬 پنل راهنما
+# 💬 پنل راهنما با متن خودت
 help_text = """⚔️ 《 راهنمای ربات محافظتی - نسخه 1.0 》 ⚔️
 ——————————————————————
 🛡️ دستورات اصلی: [محافظت از شما]🩸
 1️⃣ /d  ارسال به گروه "جمله شما"
 2️⃣ /spam "متن شما" "عدد"
-3️⃣ دستور شماره 3
-4️⃣ دستور شماره 4
-5️⃣ دستور شماره 5
+3️⃣ /doshman "نابود کردن دشمنان"
+4️⃣ /mutee "سکوت کاربر-دشمن"
+5️⃣ /sik "حذف کاربر از گروه" 
 ——————————————————————
 ⚔️ دستورات واکنش به کاربران:👤
-6️⃣ دستور شماره 6
-7️⃣ دستور شماره 7  
-8️⃣ دستور شماره 8
+6️⃣ /idd "در آوردن اطلاعات فرد" 
+7️⃣ /m "معرفی ربات محافظتی به کاربر"  
+8️⃣ /tagg "صدا زدن تمامی افراد گروه"
 ——————————————————————
 🔒 دستورات مدیریت گروه:👨‍💻
-9️⃣ دستور شماره 9  
-🔟 دستور شماره 10
-1️⃣1️⃣ دستور شماره 11
+9️⃣ /zedlink "فعالسازی قفل لینک"  
+🔟 /pinn "پین کردن پیام"
+1️⃣1️⃣ /ghofle "قفل کامل گروه"
 ——————————————————————
 🏷️ سایر دستورات:👾
-1️⃣2️⃣ دستور شماره 12
-1️⃣3️⃣ دستور شماره 13
+1️⃣2️⃣ /adminn "افزودن مدیر ربات"
+1️⃣3️⃣ /bgo "حرف‌زدن با من"
 ——————————————————————
 ⚠️ توجه:  
 تمام دستورات فقط توسط مالک و مدیران ربات قابل اجراست.  
@@ -44,7 +44,7 @@ def send_help(message):
     if is_admin(message.from_user.id):
         bot.reply_to(message, help_text)
 
-# ✅ دستور اول: /d
+# دستور اول: /d
 @bot.message_handler(commands=['d'])
 def d_handler(message):
     if not is_admin(message.from_user.id):
@@ -65,7 +65,7 @@ def d_handler(message):
     else:
         bot.send_message(message.chat.id, msg_text)
 
-# ✅ دستور دوم: /spam
+# دستور دوم: /spam
 @bot.message_handler(commands=['spam'])
 def spam_handler(message):
     if not is_admin(message.from_user.id):
@@ -97,5 +97,47 @@ def spam_handler(message):
                 time.sleep(0.3)
             except Exception:
                 continue
+
+# دستور چهارم: /mutee (سکوت دائمی روی کاربر ریپلای شده)
+@bot.message_handler(commands=['mutee'])
+def mutee_handler(message):
+    if not is_admin(message.from_user.id):
+        return
+    if message.reply_to_message:
+        try:
+            bot.restrict_chat_member(
+                message.chat.id,
+                message.reply_to_message.from_user.id,
+                can_send_messages=False,
+                can_send_media_messages=False,
+                can_send_other_messages=False,
+                can_add_web_page_previews=False
+            )
+            bot.reply_to(message, "🔇 کاربر سکوت دائمی شد.")
+        except Exception:
+            bot.reply_to(message, "❌ خطا در سکوت کاربر.")
+    else:
+        bot.reply_to(message, "❌ لطفاً روی پیام فرد مورد نظر ریپلای کن.")
+
+# دستور پنجم: /dmutee (لغو سکوت کاربر ریپلای شده)
+@bot.message_handler(commands=['dmutee'])
+def dmutee_handler(message):
+    if not is_admin(message.from_user.id):
+        return
+    if message.reply_to_message:
+        try:
+            bot.restrict_chat_member(
+                message.chat.id,
+                message.reply_to_message.from_user.id,
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True
+            )
+            bot.reply_to(message, "🔊 سکوت کاربر برداشته شد.")
+        except Exception:
+            bot.reply_to(message, "❌ خطا در آزادسازی سکوت کاربر.")
+    else:
+        bot.reply_to(message, "❌ لطفاً روی پیام فرد مورد نظر ریپلای کن.")
 
 bot.infinity_polling()
