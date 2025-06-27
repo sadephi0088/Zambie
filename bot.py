@@ -1,12 +1,13 @@
 import telebot
 import time
-import threading
 import sqlite3
+from flask import Flask, request
 
 TOKEN = '8049022187:AAEoR_IorwWZ8KaH_UMvCo2fa1LjTqhnlWY'
 OWNER_ID = 7341748124
 ADMINS = {OWNER_ID}
-bot = telebot.TeleBot(TOKEN)
+bot = telebot.TeleBot(TOKEN, threaded=False)  # وبهوک بهتر با threaded=False
+app = Flask(__name__)
 
 doshman_users = set()
 muted_users = set()
@@ -259,14 +260,7 @@ def stop_tag(message):
 
 @bot.message_handler(func=lambda message: True)
 def all_messages(message):
-    # ذخیره عضو در دیتابیس
     save_member(message.chat.id, message.from_user)
-
-    # حذف عضو در صورت ترک دادن گروه
-@bot.my_chat_member_handler()
-def handle_member_update(message):
-    if message.old_chat_member.status in ['member', 'administrator', 'creator'] and message.new_chat_member.status == 'left':
-        remove_member(message.chat.id, message.from_user.id)
 
     if message.chat.id in anti_link_enabled:
         if message.text and any(x in message.text.lower() for x in ['http', 't.me', 'telegram.me', 'www.']):
@@ -281,4 +275,31 @@ def handle_member_update(message):
             except:
                 pass
 
-bot.infinity_polling()
+# حذف کاربر هنگام ترک گروه
+@bot.my_chat_member_handler()
+def handle_member_update(message):
+    if message.new_chat_member.status in ['left', 'kicked']:
+        user_id = message.new_chat_member.user.id
+        remove_member(message.chat.id, user_id)
+
+# ---------------- وبهوک ----------------
+@app.route(f"/{TOKEN}", methods=['POST'])
+def webhook():
+    json_string = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_string)
+    bot.process_new_updates([update])
+    return "!", 200
+
+@app.route("/")
+def index():
+    return "Bot is running!", 200
+
+if __name__ == "__main__":
+    import os
+    PORT = int(os.environ.get('PORT', 5000))
+    WEBHOOK_URL = f"https://zambie.onrender.com/{TOKEN}"  # آدرس وبهوک خودت را وارد کن
+    bot.remove_webhook()
+    time.sleep(1)
+    bot.set_webhook(url=WEBHOOK_URL)
+    print(f"Webhook set to {WEBHOOK_URL}")
+    app.run(host="0.0.0.0", port=PORT)
