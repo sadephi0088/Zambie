@@ -2,6 +2,7 @@ import telebot
 import time
 import threading
 import sqlite3
+from flask import Flask
 
 TOKEN = '8049022187:AAEoR_IorwWZ8KaH_UMvCo2fa1LjTqhnlWY'
 OWNER_ID = 7341748124
@@ -105,11 +106,13 @@ def doshman_on(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
         doshman_users.add(message.reply_to_message.from_user.id)
         bot.reply_to(message, "☠️ دشمن فعال شد.")
+
 @bot.message_handler(commands=['ddoshman'])
 def doshman_off(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
         doshman_users.discard(message.reply_to_message.from_user.id)
         bot.reply_to(message, "✅ دشمن غیرفعال شد.")
+
 @bot.message_handler(func=lambda m: m.from_user.id in doshman_users)
 def reply_doshman(message):
     text = doshman_msgs[int(time.time()*1000) % len(doshman_msgs)]
@@ -120,6 +123,7 @@ def mutee(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
         bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=False)
         bot.reply_to(message, "🔇 کاربر سکوت شد.")
+
 @bot.message_handler(commands=['dmutee'])
 def unmutee(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
@@ -131,6 +135,7 @@ def ban_user(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
         bot.ban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
         bot.reply_to(message, "🚫 کاربر حذف شد.")
+
 @bot.message_handler(commands=['dsik'])
 def unban_user(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
@@ -155,6 +160,7 @@ def zedlink_on(message):
     if is_admin(message.from_user.id):
         anti_link_enabled.add(message.chat.id)
         bot.reply_to(message, "🔗 ضد لینک فعال شد.")
+
 @bot.message_handler(commands=['dzedlink'])
 def zedlink_off(message):
     if is_admin(message.from_user.id):
@@ -166,6 +172,7 @@ def pin_msg(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
         bot.pin_chat_message(message.chat.id, message.reply_to_message.message_id)
         bot.reply_to(message, "📌 پین شد.")
+
 @bot.message_handler(commands=['dpinn'])
 def unpin_msg(message):
     if is_admin(message.from_user.id):
@@ -177,6 +184,7 @@ def lock_chat(message):
     if is_admin(message.from_user.id):
         group_lock_enabled.add(message.chat.id)
         bot.reply_to(message, "🔒 گروه قفل شد.")
+
 @bot.message_handler(commands=['dghofle'])
 def unlock_chat(message):
     if is_admin(message.from_user.id):
@@ -199,6 +207,7 @@ def add_admin(message):
     if message.reply_to_message and is_admin(message.from_user.id):
         ADMINS.add(message.reply_to_message.from_user.id)
         bot.reply_to(message, "✅ به مدیران افزوده شد.")
+
 @bot.message_handler(commands=['dadminn'])
 def remove_admin(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
@@ -282,4 +291,19 @@ def handle_member_update(message):
             except:
                 pass
 
-bot.infinity_polling()
+# ----------- اضافه کردن وب‌سرور Flask برای keep-alive ------------
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "ربات محافظتی فعال است ❤"
+
+def run_flask():
+    app.run(host="0.0.0.0", port=8080)
+
+# اجرای همزمان فلاسک و ربات
+if __name__ == "__main__":
+    threading.Thread(target=run_flask).start()
+    bot.infinity_polling()
