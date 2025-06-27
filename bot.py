@@ -13,11 +13,6 @@ muted_users = set()
 anti_link_enabled = set()
 group_lock_enabled = set()
 group_members = set()
-tagging = False
-tagged_message_ids = []
-tag_text = ""
-tag_chat_id = 0
-tag_thread = None
 
 doshman_msgs = [
     "خفه شو دیگه🤣", "سیکتر کن😅", "نبینمت اسکول😂", "برو بچه کیونی🤣🤣", "سگ پدر😂",
@@ -229,10 +224,72 @@ def bgo(message):
     if is_admin(message.from_user.id):
         bot.reply_to(message, "🤖 من آماده‌ام برای محافظت از اربابم!")
 
+# ----------- بخش تگ کردن اعضا ---------------
+tagging = False
+tag_chat_id = 0
+tag_text = ""
+tag_thread = None
+
+def tag_members(chat_id, text):
+    global tagging
+    tagging = True
+    try:
+        members = bot.get_chat_members_count(chat_id)
+        # برای گرفتن اعضا در تلگرام API مستقیم برای گرفتن همه اعضا نداره، فقط میشه مدیرها رو گرفت.
+        # اینجا می‌تونیم فقط مدیرها رو تگ کنیم یا اگر تو دیتابیسی اعضا رو ذخیره کردید از اون استفاده کنید.
+        admins = bot.get_chat_administrators(chat_id)
+        user_ids = [admin.user.id for admin in admins]
+        for user_id in user_ids:
+            if not tagging:
+                break
+            try:
+                member = bot.get_chat_member(chat_id, user_id).user
+                if member.username:
+                    mention = f"@{member.username}"
+                else:
+                    mention = f"[{member.first_name}](tg://user?id={user_id})"
+                bot.send_message(chat_id, f"{mention} {text}", parse_mode='Markdown')
+                time.sleep(0.3)
+            except Exception:
+                continue
+    finally:
+        tagging = False
+
+@bot.message_handler(commands=['tagg'])
+def start_tag(message):
+    global tag_thread, tag_chat_id, tag_text, tagging
+    if not is_admin(message.from_user.id):
+        return
+    if tagging:
+        bot.reply_to(message, "⚠️ عملیات تگ کردن در حال اجراست، ابتدا /stopp را بزنید.")
+        return
+    tag_chat_id = message.chat.id
+    tag_text = message.text[6:].strip() if len(message.text) > 6 else ""
+    if message.reply_to_message and tag_text == "":
+        tag_text = message.reply_to_message.text or ""
+        bot.send_message(tag_chat_id, tag_text, reply_to_message_id=message.reply_to_message.message_id)
+    elif tag_text:
+        bot.send_message(tag_chat_id, tag_text)
+    else:
+        bot.send_message(tag_chat_id, "🛡️ توجه: همه اعضا تگ می‌شوند!")
+    tag_thread = threading.Thread(target=tag_members, args=(tag_chat_id, tag_text))
+    tag_thread.start()
+
+@bot.message_handler(commands=['stopp'])
+def stop_tag(message):
+    global tagging
+    if not is_admin(message.from_user.id):
+        return
+    if tagging:
+        tagging = False
+        bot.reply_to(message, "🛑 عملیات تگ کردن متوقف شد.")
+    else:
+        bot.reply_to(message, "⚠️ عملیات تگ کردن فعال نیست.")
+
 @bot.message_handler(func=lambda message: True)
 def auto_check(message):
     if message.chat.id in anti_link_enabled:
-        if any(x in message.text.lower() for x in ['http', 't.me', 'telegram.me', 'www.']):
+        if message.text and any(x in message.text.lower() for x in ['http', 't.me', 'telegram.me', 'www.']):
             try:
                 bot.delete_message(message.chat.id, message.message_id)
             except: pass
