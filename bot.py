@@ -25,6 +25,10 @@ def save_member(chat_id, user):
                 (chat_id, user.id, user.first_name))
     conn.commit()
 
+def remove_member(chat_id, user_id):
+    cur.execute("DELETE FROM members WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
+    conn.commit()
+
 doshman_msgs = [
     "خفه شو دیگه🤣", "سیکتر کن😅", "نبینمت اسکول😂", "برو بچه کیونی🤣🤣", "سگ پدر😂",
     "روانی ریقو🤣", "شاشو😂", "از اینجا تا اونجا توی کو‌..نت😂", "ریدم دهنت...😂",
@@ -211,25 +215,40 @@ def bgo(message):
 def tag_all(message):
     if not is_admin(message.from_user.id): return
     tag_text = message.text[6:].strip()
+    bot.send_message(message.chat.id, "🛡️ عملیات تگ کردن اعضا آغاز شد!")
     cur.execute("SELECT DISTINCT user_id, name FROM members WHERE chat_id = ?", (message.chat.id,))
     members = cur.fetchall()
     for user_id, name in members:
-        if message.reply_to_message:
+        try:
             mention = f"[{name}](tg://user?id={user_id}) {tag_text}"
-            bot.send_message(message.chat.id, mention, reply_to_message_id=message.reply_to_message.message_id, parse_mode="Markdown")
-        else:
-            mention = f"[{name}](tg://user?id={user_id}) {tag_text}"
-            bot.send_message(message.chat.id, mention, parse_mode="Markdown")
-        time.sleep(0.4)
+            if message.reply_to_message:
+                bot.send_message(message.chat.id, mention, reply_to_message_id=message.reply_to_message.message_id, parse_mode="Markdown")
+            else:
+                bot.send_message(message.chat.id, mention, parse_mode="Markdown")
+            time.sleep(0.4)
+        except:
+            continue
 
-@bot.message_handler(func=lambda m: True)
+@bot.message_handler(func=lambda message: True)
 def all_messages(message):
     save_member(message.chat.id, message.from_user)
     if message.chat.id in anti_link_enabled:
         if message.text and any(x in message.text.lower() for x in ['http', 't.me', 'telegram.me', 'www.']):
-            bot.delete_message(message.chat.id, message.message_id)
+            try:
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
     if message.chat.id in group_lock_enabled:
         if not is_admin(message.from_user.id):
-            bot.delete_message(message.chat.id, message.message_id)
+            try:
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
+
+# حذف عضو هنگام خروج از گروه
+@bot.message_handler(content_types=['left_chat_member'])
+def on_user_left(message):
+    left_user = message.left_chat_member
+    remove_member(message.chat.id, left_user.id)
 
 bot.infinity_polling()
