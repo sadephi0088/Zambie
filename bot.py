@@ -12,7 +12,7 @@ doshman_users = set()
 muted_users = set()
 anti_link_enabled = set()
 group_lock_enabled = set()
-tagging = False
+tagging = False  # کنترل تگ کردن
 
 # دیتابیس ذخیره اعضای گروه
 conn = sqlite3.connect("members.db", check_same_thread=False)
@@ -210,28 +210,64 @@ def bgo(message):
     if is_admin(message.from_user.id):
         bot.reply_to(message, "🤖 من آماده‌ام برای محافظت از اربابم!")
 
-# ---------------- تگ اعضا ----------------
+# --------------- بخش تگ کردن اعضا ---------------
 @bot.message_handler(commands=['tagg'])
 def tag_all(message):
-    if not is_admin(message.from_user.id): return
+    global tagging
+    if not is_admin(message.from_user.id):
+        return
+    if tagging:
+        bot.reply_to(message, "⚠️ عملیات تگ کردن در حال اجراست، ابتدا با /stopp متوقفش کن.")
+        return
+
+    tagging = True
     tag_text = message.text[6:].strip()
-    bot.send_message(message.chat.id, "🛡️ عملیات تگ کردن اعضا آغاز شد!")
+    if message.reply_to_message and tag_text == "":
+        tag_text = message.reply_to_message.text or ""
+
+    bot.send_message(message.chat.id, "🛡️ عملیات تگ کردن آغاز شد...")
+
     cur.execute("SELECT DISTINCT user_id, name FROM members WHERE chat_id = ?", (message.chat.id,))
     members = cur.fetchall()
+
     for user_id, name in members:
-        try:
-            mention = f"[{name}](tg://user?id={user_id}) {tag_text}"
-            if message.reply_to_message:
-                bot.send_message(message.chat.id, mention, reply_to_message_id=message.reply_to_message.message_id, parse_mode="Markdown")
-            else:
-                bot.send_message(message.chat.id, mention, parse_mode="Markdown")
-            time.sleep(0.4)
-        except:
-            continue
+        if not tagging:
+            bot.send_message(message.chat.id, "🛑 عملیات تگ کردن متوقف شد.")
+            break
+        mention = f"[{name}](tg://user?id={user_id})"
+        text = f"{mention} {tag_text}"
+        if message.reply_to_message:
+            bot.send_message(message.chat.id, text, reply_to_message_id=message.reply_to_message.message_id, parse_mode="Markdown")
+        else:
+            bot.send_message(message.chat.id, text, parse_mode="Markdown")
+        time.sleep(0.4)
+
+    tagging = False
+    if tagging == False:
+        bot.send_message(message.chat.id, "✅ عملیات تگ کردن به پایان رسید.")
+
+@bot.message_handler(commands=['stopp'])
+def stop_tag(message):
+    global tagging
+    if not is_admin(message.from_user.id):
+        return
+    if tagging:
+        tagging = False
+        bot.reply_to(message, "🛑 عملیات تگ کردن متوقف شد.")
+    else:
+        bot.reply_to(message, "⚠️ عملیات تگ کردن فعال نیست.")
 
 @bot.message_handler(func=lambda message: True)
 def all_messages(message):
+    # ذخیره عضو در دیتابیس
     save_member(message.chat.id, message.from_user)
+
+    # حذف عضو در صورت ترک دادن گروه
+@bot.my_chat_member_handler()
+def handle_member_update(message):
+    if message.old_chat_member.status in ['member', 'administrator', 'creator'] and message.new_chat_member.status == 'left':
+        remove_member(message.chat.id, message.from_user.id)
+
     if message.chat.id in anti_link_enabled:
         if message.text and any(x in message.text.lower() for x in ['http', 't.me', 'telegram.me', 'www.']):
             try:
@@ -244,11 +280,5 @@ def all_messages(message):
                 bot.delete_message(message.chat.id, message.message_id)
             except:
                 pass
-
-# حذف عضو هنگام خروج از گروه
-@bot.message_handler(content_types=['left_chat_member'])
-def on_user_left(message):
-    left_user = message.left_chat_member
-    remove_member(message.chat.id, left_user.id)
 
 bot.infinity_polling()
