@@ -1,12 +1,14 @@
 import telebot
 import time
+import threading
 import sqlite3
 from flask import Flask, request
 
 TOKEN = '8049022187:AAEoR_IorwWZ8KaH_UMvCo2fa1LjTqhnlWY'
 OWNER_ID = 7341748124
 ADMINS = {OWNER_ID}
-bot = telebot.TeleBot(TOKEN, threaded=False)  # وبهوک بهتر با threaded=False
+bot = telebot.TeleBot(TOKEN, threaded=False)
+
 app = Flask(__name__)
 
 doshman_users = set()
@@ -30,13 +32,13 @@ def remove_member(chat_id, user_id):
     cur.execute("DELETE FROM members WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
     conn.commit()
 
-doshman_msgs = [
-    "خفه شو دیگه🤣", "سیکتر کن😅", "نبینمت اسکول😂", "برو بچه کیونی🤣🤣", "سگ پدر😂",
-    "روانی ریقو🤣", "شاشو😂", "از اینجا تا اونجا توی کو‌..نت😂", "ریدم دهنت...😂",
-    "گمشو دیگه بهت خندیدم پرو شدی", "سگو کی باشی😂😂😅", "اسکول یه وری", "ریدم تو قیافت", "شاشیدم دهنت😂"
-]
+def is_admin(user_id):
+    return user_id in ADMINS
 
-help_text = """⚔️ 《 راهنمای ربات محافظتی - نسخه 1.0 》 ⚔️
+@bot.message_handler(commands=['help'])
+def send_help(message):
+    if is_admin(message.from_user.id):
+        help_text = """⚔️ 《 راهنمای ربات محافظتی - نسخه 1.0 》 ⚔️
 ——————————————————————
 🛡️ دستورات اصلی: [محافظت از شما]🩸
 1️⃣ /d  ارسال به گروه "جمله شما"
@@ -64,13 +66,6 @@ help_text = """⚔️ 《 راهنمای ربات محافظتی - نسخه 1.0 
 تمام دستورات فقط توسط مالک و مدیران ربات قابل اجراست.
 برای لغو دستورات، ابتدای همان دستور بنویسید "d"
 """
-
-def is_admin(user_id):
-    return user_id in ADMINS
-
-@bot.message_handler(commands=['help'])
-def send_help(message):
-    if is_admin(message.from_user.id):
         bot.reply_to(message, help_text)
 
 @bot.message_handler(commands=['d'])
@@ -106,11 +101,19 @@ def doshman_on(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
         doshman_users.add(message.reply_to_message.from_user.id)
         bot.reply_to(message, "☠️ دشمن فعال شد.")
+
 @bot.message_handler(commands=['ddoshman'])
 def doshman_off(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
         doshman_users.discard(message.reply_to_message.from_user.id)
         bot.reply_to(message, "✅ دشمن غیرفعال شد.")
+
+doshman_msgs = [
+    "خفه شو دیگه🤣", "سیکتر کن😅", "نبینمت اسکول😂", "برو بچه کیونی🤣🤣", "سگ پدر😂",
+    "روانی ریقو🤣", "شاشو😂", "از اینجا تا اونجا توی کو‌..نت😂", "ریدم دهنت...😂",
+    "گمشو دیگه بهت خندیدم پرو شدی", "سگو کی باشی😂😂😅", "اسکول یه وری", "ریدم تو قیافت", "شاشیدم دهنت😂"
+]
+
 @bot.message_handler(func=lambda m: m.from_user.id in doshman_users)
 def reply_doshman(message):
     text = doshman_msgs[int(time.time()*1000) % len(doshman_msgs)]
@@ -121,6 +124,7 @@ def mutee(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
         bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=False)
         bot.reply_to(message, "🔇 کاربر سکوت شد.")
+
 @bot.message_handler(commands=['dmutee'])
 def unmutee(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
@@ -132,6 +136,7 @@ def ban_user(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
         bot.ban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
         bot.reply_to(message, "🚫 کاربر حذف شد.")
+
 @bot.message_handler(commands=['dsik'])
 def unban_user(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
@@ -156,6 +161,7 @@ def zedlink_on(message):
     if is_admin(message.from_user.id):
         anti_link_enabled.add(message.chat.id)
         bot.reply_to(message, "🔗 ضد لینک فعال شد.")
+
 @bot.message_handler(commands=['dzedlink'])
 def zedlink_off(message):
     if is_admin(message.from_user.id):
@@ -167,6 +173,7 @@ def pin_msg(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
         bot.pin_chat_message(message.chat.id, message.reply_to_message.message_id)
         bot.reply_to(message, "📌 پین شد.")
+
 @bot.message_handler(commands=['dpinn'])
 def unpin_msg(message):
     if is_admin(message.from_user.id):
@@ -178,6 +185,7 @@ def lock_chat(message):
     if is_admin(message.from_user.id):
         group_lock_enabled.add(message.chat.id)
         bot.reply_to(message, "🔒 گروه قفل شد.")
+
 @bot.message_handler(commands=['dghofle'])
 def unlock_chat(message):
     if is_admin(message.from_user.id):
@@ -200,6 +208,7 @@ def add_admin(message):
     if message.reply_to_message and is_admin(message.from_user.id):
         ADMINS.add(message.reply_to_message.from_user.id)
         bot.reply_to(message, "✅ به مدیران افزوده شد.")
+
 @bot.message_handler(commands=['dadminn'])
 def remove_admin(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
@@ -275,31 +284,23 @@ def all_messages(message):
             except:
                 pass
 
-# حذف کاربر هنگام ترک گروه
+# حذف اعضا در صورت ترک دادن گروه
 @bot.my_chat_member_handler()
 def handle_member_update(message):
-    if message.new_chat_member.status in ['left', 'kicked']:
-        user_id = message.new_chat_member.user.id
-        remove_member(message.chat.id, user_id)
+    if message.old_chat_member.status in ['member', 'administrator', 'creator'] and message.new_chat_member.status == 'left':
+        remove_member(message.chat.id, message.from_user.id)
 
-# ---------------- وبهوک ----------------
+# وبهوک برای Render
 @app.route(f"/{TOKEN}", methods=['POST'])
 def webhook():
-    json_string = request.get_data().decode('utf-8')
-    update = telebot.types.Update.de_json(json_string)
+    json_str = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_str)
     bot.process_new_updates([update])
-    return "!", 200
-
-@app.route("/")
-def index():
-    return "Bot is running!", 200
+    return '', 200
 
 if __name__ == "__main__":
-    import os
-    PORT = int(os.environ.get('PORT', 5000))
-    WEBHOOK_URL = f"https://zambie.onrender.com/{TOKEN}"  # آدرس وبهوک خودت را وارد کن
+    print("Setting webhook...")
     bot.remove_webhook()
-    time.sleep(1)
-    bot.set_webhook(url=WEBHOOK_URL)
-    print(f"Webhook set to {WEBHOOK_URL}")
-    app.run(host="0.0.0.0", port=PORT)
+    bot.set_webhook(url=f"https://zambie.onrender.com/{TOKEN}")
+    print("Webhook set.")
+    app.run(host="0.0.0.0", port=8080)
