@@ -1,24 +1,34 @@
 import telebot
 import time
 import threading
+import sqlite3
 
 TOKEN = '8049022187:AAEoR_IorwWZ8KaH_UMvCo2fa1LjTqhnlWY'
 OWNER_ID = 7341748124
 ADMINS = {OWNER_ID}
-
 bot = telebot.TeleBot(TOKEN)
 
 doshman_users = set()
 muted_users = set()
 anti_link_enabled = set()
 group_lock_enabled = set()
-group_members = set()
+tagging = False
+
+# دیتابیس ذخیره اعضای گروه
+conn = sqlite3.connect("members.db", check_same_thread=False)
+cur = conn.cursor()
+cur.execute("CREATE TABLE IF NOT EXISTS members (chat_id INTEGER, user_id INTEGER, name TEXT)")
+conn.commit()
+
+def save_member(chat_id, user):
+    cur.execute("INSERT OR IGNORE INTO members (chat_id, user_id, name) VALUES (?, ?, ?)",
+                (chat_id, user.id, user.first_name))
+    conn.commit()
 
 doshman_msgs = [
     "خفه شو دیگه🤣", "سیکتر کن😅", "نبینمت اسکول😂", "برو بچه کیونی🤣🤣", "سگ پدر😂",
     "روانی ریقو🤣", "شاشو😂", "از اینجا تا اونجا توی کو‌..نت😂", "ریدم دهنت...😂",
-    "گمشو دیگه بهت خندیدم پرو شدی", "سگو کی باشی😂😂😅", "اسکول یه وری",
-    "ریدم تو قیافت", "شاشیدم دهنت😂"
+    "گمشو دیگه بهت خندیدم پرو شدی", "سگو کی باشی😂😂😅", "اسکول یه وری", "ریدم تو قیافت", "شاشیدم دهنت😂"
 ]
 
 help_text = """⚔️ 《 راهنمای ربات محافظتی - نسخه 1.0 》 ⚔️
@@ -46,8 +56,8 @@ help_text = """⚔️ 《 راهنمای ربات محافظتی - نسخه 1.0 
 1️⃣4️⃣ /bgo "حرف‌زدن با من"
 ——————————————————————
 ⚠️ توجه:  
-تمام دستورات فقط توسط مالک و مدیران ربات قابل اجراست.  
-برای لغو دستورات، ابتدای همان دستور بنویسید "d" [مثال /sik >> بن از گروه] [ /dsik لغو بن از گروه].
+تمام دستورات فقط توسط مالک و مدیران ربات قابل اجراست.
+برای لغو دستورات، ابتدای همان دستور بنویسید "d"
 """
 
 def is_admin(user_id):
@@ -60,8 +70,7 @@ def send_help(message):
 
 @bot.message_handler(commands=['d'])
 def d_handler(message):
-    if not is_admin(message.from_user.id):
-        return
+    if not is_admin(message.from_user.id): return
     text = message.text[3:].strip()
     if text:
         try: bot.delete_message(message.chat.id, message.message_id)
@@ -75,18 +84,14 @@ def d_handler(message):
 
 @bot.message_handler(commands=['spam'])
 def spam_handler(message):
-    if not is_admin(message.from_user.id):
-        return
+    if not is_admin(message.from_user.id): return
     try:
         _, count, text = message.text.split(" ", 2)
         count = int(count)
         if count > 100:
             return bot.reply_to(message, "❌ حداکثر 100 بار.")
         for _ in range(count):
-            if message.reply_to_message:
-                bot.send_message(message.chat.id, text, reply_to_message_id=message.reply_to_message.message_id)
-            else:
-                bot.send_message(message.chat.id, text)
+            bot.send_message(message.chat.id, text)
             time.sleep(0.3)
     except:
         bot.reply_to(message, "❌ مثال: `/spam 3 سلام`", parse_mode='Markdown')
@@ -109,36 +114,24 @@ def reply_doshman(message):
 @bot.message_handler(commands=['mutee'])
 def mutee(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
-        try:
-            bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=False)
-            bot.reply_to(message, "🔇 کاربر سکوت شد.")
-        except:
-            bot.reply_to(message, "❌ خطا.")
+        bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=False)
+        bot.reply_to(message, "🔇 کاربر سکوت شد.")
 @bot.message_handler(commands=['dmutee'])
 def unmutee(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
-        try:
-            bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=True)
-            bot.reply_to(message, "🔊 سکوت برداشته شد.")
-        except:
-            bot.reply_to(message, "❌ خطا.")
+        bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=True)
+        bot.reply_to(message, "🔊 سکوت برداشته شد.")
 
 @bot.message_handler(commands=['sik'])
 def ban_user(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
-        try:
-            bot.ban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
-            bot.reply_to(message, "🚫 کاربر حذف شد.")
-        except:
-            bot.reply_to(message, "❌ نشد بندازمش بیرون.")
+        bot.ban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
+        bot.reply_to(message, "🚫 کاربر حذف شد.")
 @bot.message_handler(commands=['dsik'])
 def unban_user(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
-        try:
-            bot.unban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
-            bot.reply_to(message, "✅ از لیست بن‌شدگان حذف شد.")
-        except:
-            bot.reply_to(message, "❌ نشد آزادش کنم.")
+        bot.unban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
+        bot.reply_to(message, "✅ از لیست بن‌شدگان حذف شد.")
 
 @bot.message_handler(commands=['idd'])
 def id_info(message):
@@ -149,10 +142,9 @@ def id_info(message):
 
 @bot.message_handler(commands=['m'])
 def introduce_me(message):
-    if is_admin(message.from_user.id):
-        txt = "🛡️ من دستیار محافظتی اختصاصی هستم...\nهر حرکتی علیه ارباب من، یعنی اعلام جنگ با من!\n\nبا هر تهدیدی، تو رو از صحنه حذف می‌کنم...\nپس بهتره محتاط باشی و قانون احترام رو رعایت کنی!\n\n#محافظ_شخصی"
-        if message.reply_to_message:
-            bot.send_message(message.chat.id, txt, reply_to_message_id=message.reply_to_message.message_id)
+    if is_admin(message.from_user.id) and message.reply_to_message:
+        txt = "🛡️ من دستیار محافظتی اختصاصی هستم...\nهر تهدیدی، یعنی اعلام جنگ با من!\n#محافظ_شخصی"
+        bot.send_message(message.chat.id, txt, reply_to_message_id=message.reply_to_message.message_id)
 
 @bot.message_handler(commands=['zedlink'])
 def zedlink_on(message):
@@ -173,10 +165,7 @@ def pin_msg(message):
 @bot.message_handler(commands=['dpinn'])
 def unpin_msg(message):
     if is_admin(message.from_user.id):
-        if message.reply_to_message:
-            bot.unpin_chat_message(message.chat.id, message.reply_to_message.message_id)
-        else:
-            bot.unpin_chat_message(message.chat.id)
+        bot.unpin_chat_message(message.chat.id)
         bot.reply_to(message, "📍 از پین خارج شد.")
 
 @bot.message_handler(commands=['ghofle'])
@@ -192,8 +181,7 @@ def unlock_chat(message):
 
 @bot.message_handler(commands=['del'])
 def delete_messages(message):
-    if not is_admin(message.from_user.id):
-        return
+    if not is_admin(message.from_user.id): return
     try:
         count = int(message.text.split()[1])
         for i in range(count):
@@ -206,96 +194,42 @@ def delete_messages(message):
 def add_admin(message):
     if message.reply_to_message and is_admin(message.from_user.id):
         ADMINS.add(message.reply_to_message.from_user.id)
-        bot.reply_to(message, "✅ به مدیران ربات افزوده شد.")
+        bot.reply_to(message, "✅ به مدیران افزوده شد.")
 @bot.message_handler(commands=['dadminn'])
 def remove_admin(message):
-    if not is_admin(message.from_user.id): return
-    if message.reply_to_message:
-        uid = message.reply_to_message.from_user.id
-        if uid != OWNER_ID:
-            ADMINS.discard(uid)
-            bot.reply_to(message, "⛔ از مدیران حذف شد.")
-    else:
-        ADMINS.difference_update({uid for uid in ADMINS if uid != OWNER_ID})
-        bot.reply_to(message, "⛔ همه مدیران حذف شدند.")
+    if is_admin(message.from_user.id) and message.reply_to_message:
+        ADMINS.discard(message.reply_to_message.from_user.id)
+        bot.reply_to(message, "⛔ از مدیران حذف شد.")
 
 @bot.message_handler(commands=['bgo'])
 def bgo(message):
     if is_admin(message.from_user.id):
         bot.reply_to(message, "🤖 من آماده‌ام برای محافظت از اربابم!")
 
-# ----------- بخش تگ کردن اعضا ---------------
-tagging = False
-tag_chat_id = 0
-tag_text = ""
-tag_thread = None
-
-def tag_members(chat_id, text):
-    global tagging
-    tagging = True
-    try:
-        members = bot.get_chat_members_count(chat_id)
-        # برای گرفتن اعضا در تلگرام API مستقیم برای گرفتن همه اعضا نداره، فقط میشه مدیرها رو گرفت.
-        # اینجا می‌تونیم فقط مدیرها رو تگ کنیم یا اگر تو دیتابیسی اعضا رو ذخیره کردید از اون استفاده کنید.
-        admins = bot.get_chat_administrators(chat_id)
-        user_ids = [admin.user.id for admin in admins]
-        for user_id in user_ids:
-            if not tagging:
-                break
-            try:
-                member = bot.get_chat_member(chat_id, user_id).user
-                if member.username:
-                    mention = f"@{member.username}"
-                else:
-                    mention = f"[{member.first_name}](tg://user?id={user_id})"
-                bot.send_message(chat_id, f"{mention} {text}", parse_mode='Markdown')
-                time.sleep(0.3)
-            except Exception:
-                continue
-    finally:
-        tagging = False
-
+# ---------------- تگ اعضا ----------------
 @bot.message_handler(commands=['tagg'])
-def start_tag(message):
-    global tag_thread, tag_chat_id, tag_text, tagging
-    if not is_admin(message.from_user.id):
-        return
-    if tagging:
-        bot.reply_to(message, "⚠️ عملیات تگ کردن در حال اجراست، ابتدا /stopp را بزنید.")
-        return
-    tag_chat_id = message.chat.id
-    tag_text = message.text[6:].strip() if len(message.text) > 6 else ""
-    if message.reply_to_message and tag_text == "":
-        tag_text = message.reply_to_message.text or ""
-        bot.send_message(tag_chat_id, tag_text, reply_to_message_id=message.reply_to_message.message_id)
-    elif tag_text:
-        bot.send_message(tag_chat_id, tag_text)
-    else:
-        bot.send_message(tag_chat_id, "🛡️ توجه: همه اعضا تگ می‌شوند!")
-    tag_thread = threading.Thread(target=tag_members, args=(tag_chat_id, tag_text))
-    tag_thread.start()
+def tag_all(message):
+    if not is_admin(message.from_user.id): return
+    tag_text = message.text[6:].strip()
+    cur.execute("SELECT DISTINCT user_id, name FROM members WHERE chat_id = ?", (message.chat.id,))
+    members = cur.fetchall()
+    for user_id, name in members:
+        if message.reply_to_message:
+            mention = f"[{name}](tg://user?id={user_id}) {tag_text}"
+            bot.send_message(message.chat.id, mention, reply_to_message_id=message.reply_to_message.message_id, parse_mode="Markdown")
+        else:
+            mention = f"[{name}](tg://user?id={user_id}) {tag_text}"
+            bot.send_message(message.chat.id, mention, parse_mode="Markdown")
+        time.sleep(0.4)
 
-@bot.message_handler(commands=['stopp'])
-def stop_tag(message):
-    global tagging
-    if not is_admin(message.from_user.id):
-        return
-    if tagging:
-        tagging = False
-        bot.reply_to(message, "🛑 عملیات تگ کردن متوقف شد.")
-    else:
-        bot.reply_to(message, "⚠️ عملیات تگ کردن فعال نیست.")
-
-@bot.message_handler(func=lambda message: True)
-def auto_check(message):
+@bot.message_handler(func=lambda m: True)
+def all_messages(message):
+    save_member(message.chat.id, message.from_user)
     if message.chat.id in anti_link_enabled:
         if message.text and any(x in message.text.lower() for x in ['http', 't.me', 'telegram.me', 'www.']):
-            try:
-                bot.delete_message(message.chat.id, message.message_id)
-            except: pass
+            bot.delete_message(message.chat.id, message.message_id)
     if message.chat.id in group_lock_enabled:
         if not is_admin(message.from_user.id):
-            try: bot.delete_message(message.chat.id, message.message_id)
-            except: pass
+            bot.delete_message(message.chat.id, message.message_id)
 
 bot.infinity_polling()
