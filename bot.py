@@ -1,6 +1,5 @@
 import telebot
 import sqlite3
-import random
 import time
 from telebot.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
@@ -37,6 +36,9 @@ CREATE TABLE IF NOT EXISTS active_games (
 )
 ''')
 conn.commit()
+
+# برای ذخیره وضعیت بازی‌ها (مقدار تاس و پیام‌ها)
+active_games_state = {}  # key: chat_id, value: dict with dice values and message_ids
 
 def register_user(user):
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user.id,))
@@ -150,40 +152,83 @@ def accept_challenge(call: CallbackQuery):
 👤 {opponent[0]}  @{opponent[1]}
 
 حالا نوبت به تاس انداختن است! 🎲  
-برای هر دو نفر ربات تاس می‌اندازد و عدد را اعلام می‌کند..."""
+منتظر تاس‌ها باشید..."""
     bot.edit_message_text(text, chat_id=chat_id, message_id=message_id)
     
-    # رول تاس نفر اول
+    # ذخیره وضعیت بازی
+    active_games_state[chat_id] = {
+        'challenger_id': challenger_id,
+        'opponent_id': user.id,
+        'dice_values': {},
+        'dice_message_ids': {}
+    }
+    
+    # فرستادن تاس اول
     dice1 = bot.send_dice(chat_id)
-    time.sleep(3)  # صبر برای مشاهده تاس اول
+    active_games_state[chat_id]['dice_message_ids']['challenger'] = dice1.message_id
+
+@bot.message_handler(content_types=['dice'])
+def handle_dice(message: Message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
     
-    # رول تاس نفر دوم
-    dice2 = bot.send_dice(chat_id)
+    if chat_id not in active_games_state:
+        return
     
-    # چک کردن نتیجه هر دو تاس (با تاخیر دادن کمی)
-    time.sleep(3)
+    game = active_games_state[chat_id]
+    challenger_id = game['challenger_id']
+    opponent_id = game['opponent_id']
     
-    dice1_value = dice1.dice.value
-    dice2_value = dice2.dice.value
+    # تشخیص اینکه این تاس برای کدوم بازیکنه
+    if user_id == challenger_id and 'challenger' not in game['dice_values']:
+        game['dice_values']['challenger'] = message.dice.value
+        game['dice_message_ids']['challenger'] = message.message_id
+        
+        # بعد از تاس اول، تاس دوم رو بنداز
+        dice2 = bot.send_dice(chat_id)
+        game['dice_message_ids']['opponent'] = dice2.message_id
+        
+    elif user_id == opponent_id and 'opponent' not in game['dice_values']:
+        # ولی بازیکن دوم که تایید کرده ما تاس دوم رو خودمون انداختیم، پس این حالت کم پیش میاد
+        # چون ما تاس دوم رو ربات میفرسته
+        # اینجا فقط برای اطمینان اگه کاربری خودش تاس زد هست، ذخیره کن
+        game['dice_values']['opponent'] = message.dice.value
+        game['dice_message_ids']['opponent'] = message.message_id
+        
+    # اگر هر دو مقدار تاس رسیده بود اعلام نتیجه کن
+    if 'challenger' in game['dice_values'] and 'opponent' in game['dice_values']:
+        announce_winner(chat_id, game)
+        del active_games_state[chat_id]
+
+def announce_winner(chat_id, game):
+    challenger_id = game['challenger_id']
+    opponent_id = game['opponent_id']
+    dice_values = game['dice_values']
+    dice_message_ids = game['dice_message_ids']
     
-    # تعیین برنده بر اساس قانون
+    dice1_value = dice_values['challenger']
+    dice2_value = dice_values['opponent']
+    
+    cursor.execute("SELECT name, username, score FROM users WHERE user_id = ?", (challenger_id,))
+    challenger = cursor.fetchone()
+    cursor.execute("SELECT name, username, score FROM users WHERE user_id = ?", (opponent_id,))
+    opponent = cursor.fetchone()
+    
     if 1 <= dice1_value <= 3:
         winner_id = challenger_id
-        loser_id = user.id
+        loser_id = opponent_id
         winner_name = challenger[0]
         winner_username = challenger[1]
         loser_name = opponent[0]
     else:
-        winner_id = user.id
+        winner_id = opponent_id
         loser_id = challenger_id
         winner_name = opponent[0]
         winner_username = opponent[1]
         loser_name = challenger[0]
     
-    cursor.execute("SELECT score FROM users WHERE user_id = ?", (winner_id,))
-    winner_score = cursor.fetchone()[0]
-    cursor.execute("SELECT score FROM users WHERE user_id = ?", (loser_id,))
-    loser_score = cursor.fetchone()[0]
+    winner_score = challenger[2] if winner_id == challenger_id else opponent[2]
+    loser_score = opponent[2] if loser_id == opponent_id else challenger[2]
 
     winner_new_score = winner_score + 40
     loser_new_score = max(0, loser_score - 20)
@@ -200,9 +245,8 @@ def accept_challenge(call: CallbackQuery):
 ➖ 20 امتیاز ازت کم شد 😢
 ✨ ولی ناامید نشو، تاس همیشه می‌چرخه!"""
 
-    # ریپلای پیام تاس اول با پیام برنده یا بازنده
-    bot.send_message(chat_id, winner_msg, reply_to_message_id=dice1.message_id)
-    bot.send_message(chat_id, loser_msg, reply_to_message_id=dice2.message_id)
+    bot.send_message(chat_id, winner_msg, reply_to_message_id=dice_message_ids['challenger'])
+    bot.send_message(chat_id, loser_msg, reply_to_message_id=dice_message_ids['opponent'])
 
     cursor.execute("DELETE FROM active_games WHERE chat_id = ?", (chat_id,))
     conn.commit()
