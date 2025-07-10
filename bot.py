@@ -157,9 +157,14 @@ def accept_challenge(call: CallbackQuery):
     # تاس نفر اول رو بنداز
     dice_msg = bot.send_dice(chat_id)
     
-    # ذخیره مقدار تاس نفر اول بعدا در هندلر dice میگیریم
+    # مقدار تاس نفر اول بعدا در هندلر dice میگیریم
     cursor.execute("UPDATE active_games SET message_id = ? WHERE game_id = ?", (dice_msg.message_id, game[0]))
     conn.commit()
+    
+    # ارسال پیام و دکمه تاس برای نفر دوم
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("🎲 تاس بنداز", callback_data="roll_second_dice"))
+    bot.send_message(chat_id, f"نفر دوم @{opponent[1]}، دکمه زیر را بزن و تاس خود را بنداز!", reply_markup=markup)
 
 @bot.message_handler(content_types=['dice'])
 def handle_dice(message: Message):
