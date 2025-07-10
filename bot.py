@@ -1,222 +1,111 @@
 import telebot
-import sqlite3
 import random
-from telebot.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 bot = telebot.TeleBot("7583760165:AAHzGN-N7nyHgFoWt9oamd2tgO7pLkKFWFs")
-
-# آیدی عددی مالک
 OWNER_ID = 7341748124
+games = {}
 
-# حالت خوش‌آمدگویی
-welcome_enabled = True
+# دکمه‌های بازه ۱۰۰تایی
+def send_range_buttons(chat_id, user_id):
+    markup = InlineKeyboardMarkup()
+    for i in range(1, 801, 100):
+        btn_text = f"{i} تا {i+99}"
+        data = f"range100:{user_id}:{i}"
+        markup.add(InlineKeyboardButton(btn_text, callback_data=data))
+    text = "✨ «سلام به قهرمان‌های بازی! 🎲\nربات عددی بین 1 تا 800 انتخاب کرده.\nحدس بزنید عدد طلایی تو کدوم بازه ۱۰۰تایی هست؟ 👑\nدکمه زیر رو فشار بدید و شروع کنیم!»"
+    bot.send_message(chat_id, text, reply_markup=markup)
 
-# اتصال به دیتابیس
-conn = sqlite3.connect('users.db', check_same_thread=False)
-cursor = conn.cursor()
+# دکمه‌های بازه ۲۰تایی
+def send_subrange_buttons(chat_id, user_id, start):
+    markup = InlineKeyboardMarkup()
+    for i in range(start, start + 100, 20):
+        btn_text = f"{i} تا {i+19}"
+        data = f"range20:{user_id}:{i}"
+        markup.add(InlineKeyboardButton(btn_text, callback_data=data))
+    text = f"🎉 «آفرین! 🥳 تو درست حدس زدی!\nعدد طلایی بین [{start}-{start+99}] هست.\nحالا بیایم بازه رو دقیق‌تر کنیم…\nکدوم بازه ۲۰تایی به نظرت عدد توش هست؟»"
+    bot.send_message(chat_id, text, reply_markup=markup)
 
-# ایجاد جدول کاربران
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    name TEXT,
-    username TEXT,
-    nickname TEXT,
-    coins INTEGER DEFAULT 250,
-    score INTEGER DEFAULT 50,
-    gold_medal INTEGER DEFAULT 0,
-    powers TEXT DEFAULT '',
-    birthday TEXT DEFAULT '',
-    hashtag TEXT DEFAULT '',
-    motto TEXT DEFAULT '',
-    rank TEXT DEFAULT '',
-    status TEXT DEFAULT ''
-)
-''')
-
-# ایجاد جدول بازی‌های فعال
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS active_games (
-    game_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    challenger_id INTEGER,
-    opponent_id INTEGER DEFAULT 0,
-    chat_id INTEGER,
-    message_id INTEGER
-)
-''')
-conn.commit()
-
-# ثبت یا بروزرسانی کاربر
-def register_user(user):
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user.id,))
-    if cursor.fetchone() is None:
-        cursor.execute('''
-            INSERT INTO users (user_id, name, username) VALUES (?, ?, ?)
-        ''', (user.id, user.first_name or 'بدون نام', user.username or 'ندارد'))
-        conn.commit()
-
-# نمایش پروفایل با /mee
-@bot.message_handler(commands=['mee'])
-def show_profile(message: Message):
-    user_id = message.from_user.id
-    register_user(message.from_user)
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-    user = cursor.fetchone()
-    if not user:
-        bot.reply_to(message, "خطا در دریافت اطلاعات کاربر!")
-        return
-    
-    profile = f"""صفحه شخصی شما در TikTak:
-
-نام: {user[1]}
-یوزرنیم: @{user[2]}
-لقب: {user[3]}
-
-📦 دارایی‌ها:
-سکه‌ها: {user[4]}
-امتیاز: {user[5]}
-نشان طلایی: {user[6]}
-
-قدرت‌ها: {user[7]}
-تولد: {user[8]}
-هشتگ: {user[9]}
-شعار: {user[10]}
-
-🎖️ درجه: {user[11]}
-👑 مقام: {user[12]}
-"""
-    bot.reply_to(message, profile)
+# دکمه‌های عدد دقیق
+def send_final_guess_buttons(chat_id, user_id, start):
+    markup = InlineKeyboardMarkup()
+    row = []
+    for i in range(start, start + 20):
+        row.append(InlineKeyboardButton(str(i), callback_data=f"final:{user_id}:{i}"))
+        if len(row) == 5:
+            markup.add(*row)
+            row = []
+    if row:
+        markup.add(*row)
+    text = f"🔥 «عالیه! 🎯\nعدد طلایی بین [{start}-{start+19}] هست.\nبریم مرحله بعد و عدد رو دقیق‌تر حدس بزنیم!»\n\n🌟 «حالا وقت حدس دقیق اعداده!\nاز بین این ۲۰ عدد، عدد طلایی رو پیدا کن! ✨\nبه نوبت حدس بزنید و شانس‌تون رو امتحان کنید!»"
+    bot.send_message(chat_id, text, reply_markup=markup)
 
 # شروع بازی با /game
-@bot.message_handler(commands=['game'])
-def start_game(message: Message):
-    register_user(message.from_user)
+@bot.message_handler(commands=["game"])
+def start_game(message):
     chat_id = message.chat.id
-    challenger = message.from_user
-
-    cursor.execute("SELECT * FROM active_games WHERE chat_id = ?", (chat_id,))
-    if cursor.fetchone():
-        bot.reply_to(message, "❌ یک بازی در حال اجراست.")
+    user_id = message.from_user.id
+    if chat_id in games:
+        bot.reply_to(message, "❌ یک بازی در حال اجراست. لطفاً صبر کن تا تموم شه.")
         return
 
-    text = f"""🎲 چالش تاس آغاز شد!
+    number = random.randint(1, 800)
+    games[chat_id] = {
+        "number": number,
+        "stage": 1,
+        "user_id": user_id
+    }
 
-{challenger.first_name} (@{challenger.username or 'ندارد'}) یک بازی تاس راه انداخته!
+    bot.send_message(chat_id, f"🎲 بازی حدس عدد توسط {message.from_user.first_name} آغاز شد!")
+    send_range_buttons(chat_id, user_id)
 
-➕ اگر پایه‌ای، روی دکمه بزن و چالش رو قبول کن.
-
-قوانین:
-1️⃣ عدد 1 تا 3 = برد شروع‌کننده (+40)
-2️⃣ عدد 4 تا 6 = برد قبول‌کننده (+40)
-
-👇👇👇"""
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("🎯 قبول چالش", callback_data="accept_challenge"))
-    sent = bot.send_message(chat_id, text, reply_markup=markup)
-
-    cursor.execute("INSERT INTO active_games (challenger_id, chat_id, message_id) VALUES (?, ?, ?)",
-                   (challenger.id, chat_id, sent.message_id))
-    conn.commit()
-
-# پذیرش چالش
-@bot.callback_query_handler(func=lambda c: c.data == "accept_challenge")
-def accept_challenge(call: CallbackQuery):
-    user = call.from_user
+# هندل دکمه‌ها
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call: CallbackQuery):
     chat_id = call.message.chat.id
-    message_id = call.message.message_id
-
-    cursor.execute("SELECT * FROM active_games WHERE chat_id = ?", (chat_id,))
-    game = cursor.fetchone()
-    if not game:
-        bot.answer_callback_query(call.id, "❌ بازی یافت نشد.")
+    user_id = call.from_user.id
+    if chat_id not in games:
+        bot.answer_callback_query(call.id, "هیچ بازی فعالی در حال حاضر نیست.")
         return
 
-    challenger_id, opponent_id = game[1], game[2]
-
-    if user.id == challenger_id:
-        bot.answer_callback_query(call.id, "❌ نمی‌تونی با خودت بازی کنی!")
-        return
-    if opponent_id != 0:
-        bot.answer_callback_query(call.id, "❌ کسی دیگه بازی رو قبول کرده.")
+    game = games[chat_id]
+    target = game["number"]
+    parts = call.data.split(":")
+    if len(parts) != 3:
         return
 
-    cursor.execute("UPDATE active_games SET opponent_id = ? WHERE game_id = ?", (user.id, game[0]))
-    conn.commit()
+    step, uid, value = parts[0], int(parts[1]), int(parts[2])
 
-    cursor.execute("SELECT name, username FROM users WHERE user_id = ?", (challenger_id,))
-    challenger = cursor.fetchone()
-    opponent = (user.first_name or 'بدون نام', user.username or 'ندارد')
-
-    text = f"""🎮 بازی بین:
-{challenger[0]} (@{challenger[1]})
-و
-{opponent[0]} (@{opponent[1]})
-
-🎲 حالا نوبت انداختن تاسه..."""
-    bot.edit_message_text(text, chat_id=chat_id, message_id=message_id)
-
-    play_dice_game(chat_id, challenger_id, user.id)
-
-# اجرای بازی تاس
-def play_dice_game(chat_id, challenger_id, opponent_id):
-    d1 = random.randint(1, 6)
-    d2 = random.randint(1, 6)
-
-    winner_id = challenger_id if d1 <= 3 else opponent_id
-    loser_id = opponent_id if winner_id == challenger_id else challenger_id
-
-    # امتیازدهی
-    cursor.execute("SELECT score FROM users WHERE user_id = ?", (winner_id,))
-    winner_score = cursor.fetchone()[0] + 40
-
-    cursor.execute("SELECT score FROM users WHERE user_id = ?", (loser_id,))
-    loser_score = max(0, cursor.fetchone()[0] - 20)
-
-    cursor.execute("UPDATE users SET score = ? WHERE user_id = ?", (winner_score, winner_id))
-    cursor.execute("UPDATE users SET score = ? WHERE user_id = ?", (loser_score, loser_id))
-    conn.commit()
-
-    cursor.execute("SELECT name FROM users WHERE user_id = ?", (winner_id,))
-    winner_name = cursor.fetchone()[0]
-    cursor.execute("SELECT name FROM users WHERE user_id = ?", (loser_id,))
-    loser_name = cursor.fetchone()[0]
-
-    bot.send_message(chat_id, f"🏆 تبریک {winner_name}! +40 امتیاز برات ثبت شد 🎉")
-    bot.send_message(chat_id, f"💔 {loser_name} متأسفم! -20 امتیاز خوردی 😢")
-
-    cursor.execute("DELETE FROM active_games WHERE chat_id = ?", (chat_id,))
-    conn.commit()
-
-# روشن کردن خوش‌آمدگویی
-@bot.message_handler(commands=['wlc'])
-def enable_welcome(message: Message):
-    global welcome_enabled
-    if message.from_user.id == OWNER_ID:
-        welcome_enabled = True
-        bot.reply_to(message, "✅ خوش‌آمدگویی فعال شد.")
-
-# خاموش کردن خوش‌آمدگویی
-@bot.message_handler(commands=['dwlc'])
-def disable_welcome(message: Message):
-    global welcome_enabled
-    if message.from_user.id == OWNER_ID:
-        welcome_enabled = False
-        bot.reply_to(message, "❌ خوش‌آمدگویی غیرفعال شد.")
-
-# پیام خوش‌آمدگویی اعضای جدید
-@bot.message_handler(content_types=['new_chat_members'])
-def welcome_new_member(message: Message):
-    if not welcome_enabled:
+    if user_id != uid:
+        bot.answer_callback_query(call.id, "⏳ این بازی مخصوص بازیکن فعلیه عزیزم! صبر کن نوبتت شه 🧡")
         return
-    for user in message.new_chat_members:
-        name = f"{user.first_name or ''} {user.last_name or ''}".strip()
-        username = f"@{user.username}" if user.username else "ندارد ❌"
-        text = f"""🎉 خوش‌اومدی {name} عزیز!
-🆔 آیدی: {user.id}
-🔗 یوزرنیم: {username}
-📄 پروفایل اختصاصی‌ت ساخته شد!
-👁‍🗨 برای دیدنش بنویس: /mee"""
-        bot.send_message(message.chat.id, text, reply_to_message_id=message.message_id)
 
-# اجرای همیشگی ربات
+    if step == "range100":
+        if value <= target <= value + 99:
+            bot.answer_callback_query(call.id, "✅ درست گفتی عزیزم! بریم مرحله بعد! 🎉")
+            send_subrange_buttons(chat_id, uid, value)
+        else:
+            bot.answer_callback_query(call.id, "😅 «نه عزیزم، عدد طلایی تو اون بازه نیست، دوباره امتحان کن!\nشجاعتت رو دوست دارم! 💪❤️»")
+
+    elif step == "range20":
+        if value <= target <= value + 19:
+            bot.answer_callback_query(call.id, "💫 عالیه! فقط یه قدم مونده تا برنده شی 😍")
+            send_final_guess_buttons(chat_id, uid, value)
+        else:
+            bot.answer_callback_query(call.id, "😅 «نه عزیزم، عدد طلایی تو اون بازه نیست، دوباره امتحان کن!\nشجاعتت رو دوست دارم! 💪❤️»")
+
+    elif step == "final":
+        if value == target:
+            bot.answer_callback_query(call.id, "🏆 وای! درست گفتییییییییی!!! 🎯")
+            username = call.from_user.username or "ندارد"
+            name = call.from_user.first_name
+            result = f"""🏆 «وای! تبریک می‌گم @{username} عزیز! 🎉🎉
+تو برنده شدی! جایزه: ۸۰ امتیاز و ۵۰ سکه به حسابت واریز شد! 💰
+قهرمان بازی امروز تویی! 👑🌹»"""
+            bot.send_message(chat_id, result)
+            # 👉 اینجا می‌تونی کد افزایش سکه/امتیاز بزاری
+            del games[chat_id]
+        else:
+            bot.answer_callback_query(call.id, "💔 نه عزیزم... اون عدد نبود! دوباره تلاش کن 😘")
+
 bot.infinity_polling()
