@@ -1,11 +1,11 @@
 import telebot
 import sqlite3
 import random
+import time
 from telebot.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 bot = telebot.TeleBot("7583760165:AAHzGN-N7nyHgFoWt9oamd2tgO7pLkKFWFs")
 
-# دیتابیس و جدول کاربران
 conn = sqlite3.connect('users.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''
@@ -27,7 +27,6 @@ CREATE TABLE IF NOT EXISTS users (
 ''')
 conn.commit()
 
-# جدول بازی‌های فعال (user_id شروع کننده)
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS active_games (
     game_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,7 +38,6 @@ CREATE TABLE IF NOT EXISTS active_games (
 ''')
 conn.commit()
 
-# ثبت یا بروزرسانی کاربر
 def register_user(user):
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user.id,))
     if cursor.fetchone() is None:
@@ -48,7 +46,6 @@ def register_user(user):
         ''', (user.id, user.first_name or 'بدون نام', user.username or 'ندارد'))
         conn.commit()
 
-# دستور /mee برای نمایش پروفایل (کد ساده شده از قبل)
 @bot.message_handler(commands=['mee'])
 def show_profile(message: Message):
     user_id = message.from_user.id
@@ -82,19 +79,16 @@ def show_profile(message: Message):
 """
     bot.reply_to(message, profile_text)
 
-# دستور /game برای شروع بازی تاس
 @bot.message_handler(commands=['game'])
 def start_game(message: Message):
     register_user(message.from_user)
     chat_id = message.chat.id
     challenger = message.from_user
-    # چک کنیم بازی فعالی توی این چت نیست
     cursor.execute("SELECT * FROM active_games WHERE chat_id = ?", (chat_id,))
     if cursor.fetchone():
         bot.reply_to(message, "❌ در حال حاضر یک بازی در جریان است، لطفاً صبر کنید تا تمام شود.")
         return
     
-    # ایجاد پیام شروع بازی
     text = f"""🎲🔥 چالش تاس شروع شد! 🔥🎲
 
 کاربر 👤 {challenger.first_name or 'بدون نام'}  
@@ -115,19 +109,16 @@ def start_game(message: Message):
     markup.add(InlineKeyboardButton("🎯 شرکت در چالش!", callback_data="accept_challenge"))
     sent = bot.send_message(chat_id, text, reply_markup=markup)
     
-    # ثبت بازی فعال
     cursor.execute("INSERT INTO active_games (challenger_id, chat_id, message_id) VALUES (?, ?, ?)",
                    (challenger.id, chat_id, sent.message_id))
     conn.commit()
 
-# هندلر قبول چالش
 @bot.callback_query_handler(func=lambda c: c.data == "accept_challenge")
 def accept_challenge(call: CallbackQuery):
     user = call.from_user
     chat_id = call.message.chat.id
     message_id = call.message.message_id
     
-    # بررسی وجود بازی فعال
     cursor.execute("SELECT * FROM active_games WHERE chat_id = ?", (chat_id,))
     game = cursor.fetchone()
     if not game:
@@ -137,21 +128,17 @@ def accept_challenge(call: CallbackQuery):
     challenger_id = game[1]
     opponent_id = game[2]
     
-    # بررسی اینکه بازیکن خودش چالش رو شروع نکرده باشه
     if user.id == challenger_id:
         bot.answer_callback_query(call.id, "❌ شما نمی‌توانید با خودتان بازی کنید!")
         return
     
-    # اگر نفر دوم قبلاً انتخاب شده بود
     if opponent_id != 0:
         bot.answer_callback_query(call.id, "❌ یک نفر قبلاً چالش را قبول کرده است.")
         return
     
-    # ثبت نفر دوم
     cursor.execute("UPDATE active_games SET opponent_id = ? WHERE game_id = ?", (user.id, game[0]))
     conn.commit()
     
-    # ارسال پیام اعلام شروع بازی و رول تاس
     cursor.execute("SELECT name, username FROM users WHERE user_id = ?", (challenger_id,))
     challenger = cursor.fetchone()
     cursor.execute("SELECT name, username FROM users WHERE user_id = ?", (user.id,))
@@ -163,61 +150,60 @@ def accept_challenge(call: CallbackQuery):
 👤 {opponent[0]}  @{opponent[1]}
 
 حالا نوبت به تاس انداختن است! 🎲  
-برای هر دو نفر عدد تاس ریخته می‌شود..."""
+برای هر دو نفر ربات تاس می‌اندازد و عدد را اعلام می‌کند..."""
     bot.edit_message_text(text, chat_id=chat_id, message_id=message_id)
     
-    # شروع بازی و رول تاس
-    play_dice_game(chat_id, challenger_id, user.id)
-
-def play_dice_game(chat_id, challenger_id, opponent_id):
-    # رول تاس برای هر دو نفر
-    dice_challenger = random.randint(1,6)
-    dice_opponent = random.randint(1,6)
-
+    # رول تاس نفر اول
+    dice1 = bot.send_dice(chat_id)
+    time.sleep(3)  # صبر برای مشاهده تاس اول
+    
+    # رول تاس نفر دوم
+    dice2 = bot.send_dice(chat_id)
+    
+    # چک کردن نتیجه هر دو تاس (با تاخیر دادن کمی)
+    time.sleep(3)
+    
+    dice1_value = dice1.dice.value
+    dice2_value = dice2.dice.value
+    
     # تعیین برنده بر اساس قانون
-    # اگر عدد تاس چالشر بین 1 تا 3 بود برنده challenger است
-    # در غیر اینصورت opponent برنده است
-    if 1 <= dice_challenger <= 3:
+    if 1 <= dice1_value <= 3:
         winner_id = challenger_id
-        loser_id = opponent_id
+        loser_id = user.id
+        winner_name = challenger[0]
+        winner_username = challenger[1]
+        loser_name = opponent[0]
     else:
-        winner_id = opponent_id
+        winner_id = user.id
         loser_id = challenger_id
-
-    # آپدیت امتیازها در دیتابیس
+        winner_name = opponent[0]
+        winner_username = opponent[1]
+        loser_name = challenger[0]
+    
     cursor.execute("SELECT score FROM users WHERE user_id = ?", (winner_id,))
     winner_score = cursor.fetchone()[0]
     cursor.execute("SELECT score FROM users WHERE user_id = ?", (loser_id,))
     loser_score = cursor.fetchone()[0]
 
     winner_new_score = winner_score + 40
-    loser_new_score = max(0, loser_score - 20)  # نذار منفی بشه
+    loser_new_score = max(0, loser_score - 20)
 
     cursor.execute("UPDATE users SET score = ? WHERE user_id = ?", (winner_new_score, winner_id))
     cursor.execute("UPDATE users SET score = ? WHERE user_id = ?", (loser_new_score, loser_id))
     conn.commit()
 
-    # گرفتن نام و یوزرنیم برای پیام‌ها
-    cursor.execute("SELECT name, username FROM users WHERE user_id = ?", (winner_id,))
-    winner = cursor.fetchone()
-    cursor.execute("SELECT name, username FROM users WHERE user_id = ?", (loser_id,))
-    loser = cursor.fetchone()
-
-    # ارسال پیام برنده
-    winner_msg = f"""🏆 تبریک {winner[0]} عزیز!
+    winner_msg = f"""🏆 تبریک {winner_name} عزیز!
 🎯 تو این چالش رو بردی و 40 امتیاز شیرین به حسابت اضافه شد 😍
 ✨ آفرین به شجاعت و شانس بی‌نظیرت! 🔥"""
-
-    # ارسال پیام بازنده
-    loser_msg = f"""💔 اوه نه {loser[0]} جان!
+    loser_msg = f"""💔 اوه نه {loser_name} جان!
 🎲 این‌بار شانس باهات یار نبود...
 ➖ 20 امتیاز ازت کم شد 😢
 ✨ ولی ناامید نشو، تاس همیشه می‌چرخه!"""
 
-    bot.send_message(chat_id, winner_msg)
-    bot.send_message(chat_id, loser_msg)
+    # ریپلای پیام تاس اول با پیام برنده یا بازنده
+    bot.send_message(chat_id, winner_msg, reply_to_message_id=dice1.message_id)
+    bot.send_message(chat_id, loser_msg, reply_to_message_id=dice2.message_id)
 
-    # حذف بازی فعال
     cursor.execute("DELETE FROM active_games WHERE chat_id = ?", (chat_id,))
     conn.commit()
 
