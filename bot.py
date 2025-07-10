@@ -182,29 +182,27 @@ def handle_dice(message: Message):
     opponent_dice = game[5]
     game_id = game[0]
     
-    # وقتی تاس نفر اول انداخته نشده و این پیام تاسه، یعنی تاس نفر اول
+    # تاس نفر اول
     if challenger_dice == 0:
-        # فقط پیام تاس باید از طرف ربات باشه، چون خود کاربر تاس نمیندازه
         if user_id == bot.get_me().id:
             cursor.execute("UPDATE active_games SET challenger_dice_value = ? WHERE game_id = ?", (message.dice.value, game_id))
             conn.commit()
-            bot.send_message(chat_id, "تاس نفر اول انداخته شد! حالا نوبت نفر دوم است.")
-            # دکمه برای تاس نفر دوم
-            markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("🎲 تاس بنداز", callback_data="roll_second_dice"))
-            bot.send_message(chat_id, "نفر دوم، دکمه زیر را بزن و تاس خود را بنداز!", reply_markup=markup)
-        return
+            bot.send_message(chat_id, "🎲 تاس نفر اول انداخته شد! حالا نوبت نفر دوم است.")
+            return
     
-    # وقتی تاس نفر اول اومده و تاس نفر دوم هنوز نیومده
-    if opponent_dice == 0 and user_id == bot.get_me().id:
-        cursor.execute("UPDATE active_games SET opponent_dice_value = ? WHERE game_id = ?", (message.dice.value, game_id))
-        conn.commit()
-        # حالا نتیجه رو اعلام کن
-        announce_winner(chat_id, game)
-        # بازی رو تمیز کن
-        cursor.execute("DELETE FROM active_games WHERE game_id = ?", (game_id,))
-        conn.commit()
-        return
+    # تاس نفر دوم
+    if challenger_dice != 0 and opponent_dice == 0:
+        if user_id == bot.get_me().id:
+            cursor.execute("UPDATE active_games SET opponent_dice_value = ? WHERE game_id = ?", (message.dice.value, game_id))
+            conn.commit()
+            
+            # اعلام نتیجه
+            announce_winner(chat_id, game)
+            
+            # حذف بازی فعلی
+            cursor.execute("DELETE FROM active_games WHERE game_id = ?", (game_id,))
+            conn.commit()
+            return
 
 @bot.callback_query_handler(func=lambda c: c.data == "roll_second_dice")
 def roll_second_dice(call: CallbackQuery):
@@ -222,10 +220,13 @@ def roll_second_dice(call: CallbackQuery):
         bot.answer_callback_query(call.id, "❌ فقط نفر دوم می‌تواند این دکمه را بزند.")
         return
     
+    # حذف یا غیرفعال کردن دکمه بعد از یکبار زدن
+    markup = InlineKeyboardMarkup()
+    bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=markup)
+    
     dice_msg = bot.send_dice(chat_id)
     bot.answer_callback_query(call.id, "🎲 تاس انداخته شد!")
-    # مقدار تاس نفر دوم در هندلر dice ذخیره می‌شود
-    
+
 def announce_winner(chat_id, game):
     challenger_id = game[1]
     opponent_id = game[2]
