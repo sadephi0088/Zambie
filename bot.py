@@ -1,12 +1,12 @@
 import telebot
 import sqlite3
-import time
 from telebot.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 bot = telebot.TeleBot("7583760165:AAHzGN-N7nyHgFoWt9oamd2tgO7pLkKFWFs")
 
 conn = sqlite3.connect('users.db', check_same_thread=False)
 cursor = conn.cursor()
+
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -32,13 +32,12 @@ CREATE TABLE IF NOT EXISTS active_games (
     challenger_id INTEGER,
     opponent_id INTEGER DEFAULT 0,
     chat_id INTEGER,
+    challenger_dice_value INTEGER DEFAULT 0,
+    opponent_dice_value INTEGER DEFAULT 0,
     message_id INTEGER
 )
 ''')
 conn.commit()
-
-# برای ذخیره وضعیت بازی‌ها (مقدار تاس و پیام‌ها)
-active_games_state = {}  # key: chat_id, value: dict with dice values and message_ids
 
 def register_user(user):
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user.id,))
@@ -152,69 +151,88 @@ def accept_challenge(call: CallbackQuery):
 👤 {opponent[0]}  @{opponent[1]}
 
 حالا نوبت به تاس انداختن است! 🎲  
-منتظر تاس‌ها باشید..."""
+منتظر تاس نفر اول باشید..."""
     bot.edit_message_text(text, chat_id=chat_id, message_id=message_id)
     
-    # ذخیره وضعیت بازی
-    active_games_state[chat_id] = {
-        'challenger_id': challenger_id,
-        'opponent_id': user.id,
-        'dice_values': {},
-        'dice_message_ids': {}
-    }
+    # تاس نفر اول رو بنداز
+    dice_msg = bot.send_dice(chat_id)
     
-    # فرستادن تاس اول
-    dice1 = bot.send_dice(chat_id)
-    active_games_state[chat_id]['dice_message_ids']['challenger'] = dice1.message_id
+    # ذخیره مقدار تاس نفر اول بعدا در هندلر dice میگیریم
+    cursor.execute("UPDATE active_games SET message_id = ? WHERE game_id = ?", (dice_msg.message_id, game[0]))
+    conn.commit()
 
 @bot.message_handler(content_types=['dice'])
 def handle_dice(message: Message):
     chat_id = message.chat.id
     user_id = message.from_user.id
     
-    if chat_id not in active_games_state:
+    cursor.execute("SELECT * FROM active_games WHERE chat_id = ?", (chat_id,))
+    game = cursor.fetchone()
+    if not game:
         return
     
-    game = active_games_state[chat_id]
-    challenger_id = game['challenger_id']
-    opponent_id = game['opponent_id']
+    challenger_id = game[1]
+    opponent_id = game[2]
+    challenger_dice = game[4]
+    opponent_dice = game[5]
+    game_id = game[0]
     
-    # تشخیص اینکه این تاس برای کدوم بازیکنه
-    if user_id == challenger_id and 'challenger' not in game['dice_values']:
-        game['dice_values']['challenger'] = message.dice.value
-        game['dice_message_ids']['challenger'] = message.message_id
-        
-        # بعد از تاس اول، تاس دوم رو بنداز
-        dice2 = bot.send_dice(chat_id)
-        game['dice_message_ids']['opponent'] = dice2.message_id
-        
-    elif user_id == opponent_id and 'opponent' not in game['dice_values']:
-        # ولی بازیکن دوم که تایید کرده ما تاس دوم رو خودمون انداختیم، پس این حالت کم پیش میاد
-        # چون ما تاس دوم رو ربات میفرسته
-        # اینجا فقط برای اطمینان اگه کاربری خودش تاس زد هست، ذخیره کن
-        game['dice_values']['opponent'] = message.dice.value
-        game['dice_message_ids']['opponent'] = message.message_id
-        
-    # اگر هر دو مقدار تاس رسیده بود اعلام نتیجه کن
-    if 'challenger' in game['dice_values'] and 'opponent' in game['dice_values']:
+    # وقتی تاس نفر اول انداخته نشده و این پیام تاسه، یعنی تاس نفر اول
+    if challenger_dice == 0:
+        # فقط پیام تاس باید از طرف ربات باشه، چون خود کاربر تاس نمیندازه
+        if user_id == bot.get_me().id:
+            cursor.execute("UPDATE active_games SET challenger_dice_value = ? WHERE game_id = ?", (message.dice.value, game_id))
+            conn.commit()
+            bot.send_message(chat_id, "تاس نفر اول انداخته شد! حالا نوبت نفر دوم است.")
+            # دکمه برای تاس نفر دوم
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("🎲 تاس بنداز", callback_data="roll_second_dice"))
+            bot.send_message(chat_id, "نفر دوم، دکمه زیر را بزن و تاس خود را بنداز!", reply_markup=markup)
+        return
+    
+    # وقتی تاس نفر اول اومده و تاس نفر دوم هنوز نیومده
+    if opponent_dice == 0 and user_id == bot.get_me().id:
+        cursor.execute("UPDATE active_games SET opponent_dice_value = ? WHERE game_id = ?", (message.dice.value, game_id))
+        conn.commit()
+        # حالا نتیجه رو اعلام کن
         announce_winner(chat_id, game)
-        del active_games_state[chat_id]
+        # بازی رو تمیز کن
+        cursor.execute("DELETE FROM active_games WHERE game_id = ?", (game_id,))
+        conn.commit()
+        return
 
-def announce_winner(chat_id, game):
-    challenger_id = game['challenger_id']
-    opponent_id = game['opponent_id']
-    dice_values = game['dice_values']
-    dice_message_ids = game['dice_message_ids']
+@bot.callback_query_handler(func=lambda c: c.data == "roll_second_dice")
+def roll_second_dice(call: CallbackQuery):
+    chat_id = call.message.chat.id
+    user = call.from_user
     
-    dice1_value = dice_values['challenger']
-    dice2_value = dice_values['opponent']
+    cursor.execute("SELECT * FROM active_games WHERE chat_id = ?", (chat_id,))
+    game = cursor.fetchone()
+    if not game:
+        bot.answer_callback_query(call.id, "❌ بازی فعال پیدا نشد یا تمام شده است.")
+        return
+    
+    opponent_id = game[2]
+    if user.id != opponent_id:
+        bot.answer_callback_query(call.id, "❌ فقط نفر دوم می‌تواند این دکمه را بزند.")
+        return
+    
+    dice_msg = bot.send_dice(chat_id)
+    bot.answer_callback_query(call.id, "🎲 تاس انداخته شد!")
+    # مقدار تاس نفر دوم در هندلر dice ذخیره می‌شود
+    
+def announce_winner(chat_id, game):
+    challenger_id = game[1]
+    opponent_id = game[2]
+    challenger_dice = game[4]
+    opponent_dice = game[5]
     
     cursor.execute("SELECT name, username, score FROM users WHERE user_id = ?", (challenger_id,))
     challenger = cursor.fetchone()
     cursor.execute("SELECT name, username, score FROM users WHERE user_id = ?", (opponent_id,))
     opponent = cursor.fetchone()
     
-    if 1 <= dice1_value <= 3:
+    if 1 <= challenger_dice <= 3:
         winner_id = challenger_id
         loser_id = opponent_id
         winner_name = challenger[0]
@@ -245,10 +263,7 @@ def announce_winner(chat_id, game):
 ➖ 20 امتیاز ازت کم شد 😢
 ✨ ولی ناامید نشو، تاس همیشه می‌چرخه!"""
 
-    bot.send_message(chat_id, winner_msg, reply_to_message_id=dice_message_ids['challenger'])
-    bot.send_message(chat_id, loser_msg, reply_to_message_id=dice_message_ids['opponent'])
-
-    cursor.execute("DELETE FROM active_games WHERE chat_id = ?", (chat_id,))
-    conn.commit()
+    bot.send_message(chat_id, winner_msg)
+    bot.send_message(chat_id, loser_msg)
 
 bot.infinity_polling()
