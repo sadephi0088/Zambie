@@ -4,8 +4,9 @@ import re
 from flask import Flask, request
 from telebot import TeleBot, types
 
-TOKEN = '7583760165:AAHzGN-N7nyHgFoWt9oamd2tgO7pLkKFWFs''
-OWNER_ID = 7341748124  # آیدی عددی خودت رو اینجا بذار
+# ✅ توکن و آیدی عددی تو
+TOKEN = '7583760165:AAHzGN-N7nyHgFoWt9oamd2tgO7pLkKFWFs'
+OWNER_ID = 7341748124
 
 bot = TeleBot(TOKEN)
 app = Flask(__name__)
@@ -38,7 +39,7 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS settings (
 )''')
 conn.commit()
 
-# فانکشن‌های کمکی
+# ابزارها
 def is_owner(uid):
     return uid == OWNER_ID
 
@@ -189,7 +190,7 @@ def count_messages(m):
         update_score(uid, 1)
         bot.send_message(m.chat.id, f"🌟 {m.from_user.first_name} عزیز! بابت ۴ پیام، ۱ امتیاز گرفتی!")
 
-# ---- Webhook setup برای Render ----
+# ---- Webhook برای Render ----
 WEBHOOK_URL = f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/{TOKEN}"
 
 @app.route(f"/{TOKEN}", methods=["POST"])
