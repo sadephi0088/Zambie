@@ -19,8 +19,10 @@ cursor.execute("""CREATE TABLE IF NOT EXISTS users (
     golden_badge_manual INTEGER DEFAULT 0,
     birthdate TEXT,
     hashtag TEXT,
-    hashtag_reply TEXT
+    hashtag_reply TEXT,
+    message_count INTEGER DEFAULT 0
 )""")
+
 cursor.execute("""CREATE TABLE IF NOT EXISTS admins (
     user_id INTEGER PRIMARY KEY
 )""")
@@ -34,6 +36,18 @@ def is_admin(uid):
         return True
     cursor.execute("SELECT 1 FROM admins WHERE user_id=?", (uid,))
     return cursor.fetchone() is not None
+
+def add_admin(user_id):
+    cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
+    conn.commit()
+
+def remove_admin(user_id):
+    cursor.execute("DELETE FROM admins WHERE user_id=?", (user_id,))
+    conn.commit()
+
+def remove_all_admins():
+    cursor.execute("DELETE FROM admins")
+    conn.commit()
 
 def add_user(user_id, first_name, username):
     cursor.execute("INSERT OR IGNORE INTO users (user_id, first_name, username, coins, score) VALUES (?, ?, ?, 180, 200)",
@@ -58,11 +72,11 @@ def check_golden_badge(uid):
     return row and (row[0] >= 5000 or row[1] == 1)
 
 def format_profile(user):
-    user_id, fname, uname, country, coins, score, _, birth, tag, _ = user
+    user_id, fname, uname, country, coins, score, _, birth, tag, _, _ = user
     uname = f"@{uname}" if uname else "ندارد"
     birth = birth or "ثبت نشده"
     tag = tag or "ثبت نشده"
-    badge = "دارد ✅" if check_golden_badge(user_id) else "ندارد ❌"
+    badge = "دارد ✅" if (score >= 5000) else "ندارد ❌"
     return f"""━━━【 پروفایل شما در گروه 】━━━
 •اطلاعات حقیقی•
 👤 نام: {fname}
@@ -87,6 +101,38 @@ def format_profile(user):
 ▪︎🏆 درجه شما در گروه: ثبت نشده
 ▪︎💠 مقام شما در گروه: ثبت نشده
 """
+
+@bot.message_handler(commands=['admin'])
+def cmd_add_admin(m):
+    if not is_owner(m.from_user.id):
+        bot.reply_to(m, "❌ فقط مالک ربات می‌تواند ادمین اضافه کند.")
+        return
+    if not m.reply_to_message:
+        bot.reply_to(m, "⚠️ برای اضافه کردن ادمین، روی پیام فرد ریپلای کنید و /admin را ارسال کنید.")
+        return
+    target = m.reply_to_message.from_user
+    add_admin(target.id)
+    bot.reply_to(m, f"✅ {target.first_name} (@{target.username or 'ندارد'}) به مدیران ربات اضافه شد.\n🆔 {target.id}")
+
+@bot.message_handler(commands=['dadmin'])
+def cmd_remove_admin(m):
+    if not is_owner(m.from_user.id):
+        bot.reply_to(m, "❌ فقط مالک ربات می‌تواند ادمین حذف کند.")
+        return
+    if not m.reply_to_message:
+        bot.reply_to(m, "⚠️ برای حذف ادمین، روی پیام فرد ریپلای کنید و /dadmin را ارسال کنید.")
+        return
+    target = m.reply_to_message.from_user
+    remove_admin(target.id)
+    bot.reply_to(m, f"✅ {target.first_name} (@{target.username or 'ندارد'}) از مدیران ربات حذف شد.\n🆔 {target.id}")
+
+@bot.message_handler(commands=['ddadmin'])
+def cmd_remove_all_admins(m):
+    if not is_owner(m.from_user.id):
+        bot.reply_to(m, "❌ فقط مالک ربات می‌تواند همه مدیران را حذف کند.")
+        return
+    remove_all_admins()
+    bot.reply_to(m, "✅ همه مدیران ربات حذف شدند.")
 
 @bot.message_handler(commands=['start'])
 def start(m):
@@ -152,16 +198,36 @@ def tag_reply(m):
     update_coins(uid, 1)
 
 @bot.message_handler(func=lambda m: m.reply_to_message and is_admin(m.from_user.id))
-def add_or_remove_coins(m):
-    match = re.match(r'^([+-])\\s*(\\d+)\\s*🪙$', m.text.strip())
-    if not match:
+def change_coins_or_score(m):
+    text = m.text.strip()
+    # تغییر سکه با علامت و ایموجی 🪙
+    coin_match = re.match(r'^([+-])\\s*(\\d+)\\s*🪙$', text)
+    if coin_match:
+        sign, amount = coin_match.groups()
+        amount = int(amount)
+        target = m.reply_to_message.from_user
+        add_user(target.id, target.first_name, target.username)
+        if sign == '+':
+            update_coins(target.id, amount)
+            bot.reply_to(m, f"🎁 {amount} سکه به حساب {target.first_name} (@{target.username or 'ندارد'}) افزوده شد!\n🆔 {target.id}")
+        else:
+            update_coins(target.id, -amount)
+            bot.reply_to(m, f"💸 {amount} سکه از حساب {target.first_name} (@{target.username or 'ندارد'}) کم شد!\n🆔 {target.id}")
         return
-    sign, amount = match.groups()
-    amount = int(amount)
-    target = m.reply_to_message.from_user
-    add_user(target.id, target.first_name, target.username)
-    update_coins(target.id, amount if sign == '+' else -amount)
-    msg = "🎁" if sign == '+' else "💸"
-    bot.reply_to(m, f"{msg} {abs(amount)} سکه {'افزوده شد به' if sign == '+' else 'کم شد از'} {target.first_name} (@{target.username or 'ندارد'})\\n🆔 {target.id}")
+
+    # تغییر امتیاز بدون ایموجی، فقط عدد با علامت +/-
+    score_match = re.match(r'^([+-])\\s*(\\d+)$', text)
+    if score_match:
+        sign, amount = score_match.groups()
+        amount = int(amount)
+        target = m.reply_to_message.from_user
+        add_user(target.id, target.first_name, target.username)
+        if sign == '+':
+            update_score(target.id, amount)
+            bot.reply_to(m, f"⭐ {amount} امتیاز به حساب {target.first_name} (@{target.username or 'ندارد'}) افزوده شد!\n🆔 {target.id}")
+        else:
+            update_score(target.id, -amount)
+            bot.reply_to(m, f"⚡ {amount} امتیاز از حساب {target.first_name} (@{target.username or 'ندارد'}) کم شد!\n🆔 {target.id}")
+        return
 
 bot.infinity_polling()
