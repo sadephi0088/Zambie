@@ -1,246 +1,718 @@
 import telebot
 from telebot import types
+import sqlite3
 import re
-from collections import defaultdict
 
-TOKEN = "7583760165:AAHzGN-N7nyHgFoWt9oamd2tgO7pLkKFWFs"
+TOKEN = '7583760165:AAHzGN-N7nyHgFoWt9oamd2tgO7pLkKFWFs'  # توکن رباتت
+OWNER_ID = 7341748124  # ایدی عددی خودت
+
 bot = telebot.TeleBot(TOKEN)
 
-users = defaultdict(lambda: {
-    "coins": 180,
-    "points": 200,
-    "birthday": "",
-    "hashtag": "",
-    "emoji": "",
-    "pets": []
-})
+اتصال به دیتابیس SQLite
 
-admins = set()
-owner_id = 123456789  # آی‌دی عددی خودت رو اینجا بذار
+conn = sqlite3.connect('botdata.db', check_same_thread=False)
+cursor = conn.cursor()
 
-pet_store = {
-    "🐺": ("گرگ", 150),
-    "🦁": ("شیر", 350),
-    "🐉": ("اژدها", 400),
-    "🐣": ("جوجه", 45),
-    "🐰": ("خرگوش", 35),
-    "🦊": ("روباه", 45),
-    "🐱": ("گربه", 30),
-    "🐶": ("سگ", 45),
-    "🐪": ("شتر", 60),
-    "🦌": ("گوزن", 30),
-    "🦈": ("کوسه", 55),
-    "🐆": ("پلنگ", 90)
-}
+ایجاد جدول‌ها اگر وجود نداشته باشند
+
+cursor.execute('''CREATE TABLE IF NOT EXISTS users (
+user_id INTEGER PRIMARY KEY,
+name TEXT,
+username TEXT,
+country TEXT DEFAULT '🇮🇷 ایران',
+coins INTEGER DEFAULT 180,
+points INTEGER DEFAULT 200,
+gold_badge INTEGER DEFAULT 0,
+birthdate TEXT,
+hashtag TEXT,
+emoji TEXT,
+pet TEXT,
+rank TEXT,
+position TEXT
+)''')
+
+cursor.execute('''CREATE TABLE IF NOT EXISTS admins (
+user_id INTEGER PRIMARY KEY
+)''')
+
+conn.commit()
+
+متغیر برای شمردن تعداد پیام هر کاربر جهت امتیازدهی
+
+message_counts = {}
+pm_awarding_active = True  # وضعیت فعال بودن امتیازدهی پیام
 
 def is_admin(user_id):
-    return user_id == owner_id or user_id in admins
+if user_id == OWNER_ID:
+return True
+cursor.execute("SELECT 1 FROM admins WHERE user_id=?", (user_id,))
+return cursor.fetchone() is not None
 
-# --- دستور /my برای نمایش پروفایل ---
-@bot.message_handler(commands=["my"])
-def my_profile(message):
-    user_id = message.from_user.id
-    user = users[user_id]
+def get_user(user_id):
+cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
+return cursor.fetchone()
 
-    name = message.from_user.first_name or "ندارد"
-    username = f"@{message.from_user.username}" if message.from_user.username else "ندارد"
-    user_id_str = str(user_id)
-    country = "🇮🇷 ایران"
+def add_user_if_not_exist(user):
+cursor.execute("SELECT * FROM users WHERE user_id=?", (user.id,))
+if cursor.fetchone() is None:
+cursor.execute(
+"INSERT INTO users(user_id, name, username) VALUES (?, ?, ?)",
+(user.id, user.first_name, '@' + user.username if user.username else None))
+conn.commit()
 
-    pets_text = " - ".join([f"{e} {n}" for e, n in user["pets"]]) if user["pets"] else "ندارد"
+def update_user_field(user_id, field, value):
+cursor.execute(f"UPDATE users SET {field}=? WHERE user_id=?", (value, user_id))
+conn.commit()
 
-    golden_mark = "✅" if user.get("golden_mark", False) else "❌"
+def add_coins(user_id, amount):
+cursor.execute("SELECT coins FROM users WHERE user_id=?", (user_id,))
+row = cursor.fetchone()
+if row:
+new_coins = max(0, row[0] + amount)
+cursor.execute("UPDATE users SET coins=? WHERE user_id=?", (new_coins, user_id))
+conn.commit()
+return new_coins
+return None
 
-    text = f"""
-━━━【 پروفایل شما در گروه 】━━━
+def add_points(user_id, amount):
+cursor.execute("SELECT points FROM users WHERE user_id=?", (user_id,))
+row = cursor.fetchone()
+if row:
+new_points = max(0, row[0] + amount)
+cursor.execute("UPDATE users SET points=? WHERE user_id=?", (new_points, user_id))
+conn.commit()
+return new_points
+return None
+
+def get_user_profile_text(user_id):
+user = get_user(user_id)
+if not user:
+return "کاربر یافت نشد."
+# user schema:
+# (user_id, name, username, country, coins, points, gold_badge, birthdate, hashtag, emoji, pet, rank, position)
+name = user[1] or ""
+username = user[2] or "ندارد"
+country = user[3] or "🇮🇷 ایران"
+coins = user[4] or 0
+points = user[5] or 0
+gold_badge = user[6] or 0
+birthdate = user[7] or ""
+hashtag = user[8] or ""
+emoji = user[9] or ""
+pet = user[10] or ""
+rank = user[11] or ""
+position = user[12] or ""
+
+badge_text = "✅" if gold_badge else "❌"  
+
+profile_text = f"""━━━【 پروفایل شما در گروه 】━━━
+
 •اطلاعات حقیقی•
 👤 نام: {name}
 ✨ یوزرنیم: {username}
-⚔️ ایدی عددی: {user_id_str}
+⚔️ ایدی عددی: {user_id}
 
-🌐 کشور شما: {country}
+🌐‌ کشور شما: {country}
 
 •• دارایی شما: ••
-💰 سکه‌هات: {user['coins']}
-💎 امتیازت: {user['points']}
-⚜️ نشان تایید طلایی: {golden_mark}
+💰 سکه‌هات: {coins}
+💎 امتیازت: {points}
+⚜️ نشان تایید طلایی: {badge_text}
 
 🔮 قدرت‌ها و طلسم‌ها:
-🎂 تاریخ تولدت: {user['birthday'] if user['birthday'] else 'ثبت نشده'}
-♨️ هشتگ اختصاصی: {user['hashtag'] if user['hashtag'] else 'ثبت نشده'}
-♥️ شکلک اختصاصی: {user['emoji'] if user['emoji'] else 'ثبت نشده'}
-🐣 حیوان مورد علاقه‌ت: {pets_text}
+🎂 تاریخ تولدت: {birthdate}
+♨️ هشتگ اختصاصی: {hashtag}
+♥️ شکلک اختصاصی: {emoji}
+🐣 حیوان مورد علاقه‌ت: {pet}
 
---------------------------------------
-::::: درگروه ::::
+:: در گروه ::::
 
-▪︎🏆 درجه شما در گروه:
-▪︎💠 مقام شما در گروه:
+▪︎🏆 درجه شما در گروه: {rank}
+▪︎💠 مقام شما در گروه: {position}
 """
-    bot.reply_to(message, text)
+return profile_text
 
-# --- دستورات افزودن و حذف ادمین ---
-@bot.message_handler(commands=["admin", "dadmin", "ddadmin"])
-def manage_admins(message):
-    user_id = message.from_user.id
-    if user_id != owner_id:
-        bot.reply_to(message, "فقط مالک ربات می‌تواند این دستور را اجرا کند.")
-        return
+دریافت نام کشور به صورت پیش‌فرض ایران
 
-    args = message.text.split()
-    cmd = message.text.split()[0]
+def get_country(user_id):
+return "🇮🇷 ایران"
 
-    if cmd == "/admin":
-        if not message.reply_to_message:
-            bot.reply_to(message, "برای افزودن ادمین باید روی پیام شخص موردنظر ریپلای کنید.")
-            return
-        new_admin_id = message.reply_to_message.from_user.id
-        admins.add(new_admin_id)
-        bot.reply_to(message, f"کاربر {new_admin_id} به مدیران ربات افزوده شد.")
-    elif cmd == "/dadmin":
-        if not message.reply_to_message:
-            bot.reply_to(message, "برای حذف ادمین باید روی پیام شخص موردنظر ریپلای کنید.")
-            return
-        rem_admin_id = message.reply_to_message.from_user.id
-        if rem_admin_id in admins:
-            admins.remove(rem_admin_id)
-            bot.reply_to(message, f"کاربر {rem_admin_id} از مدیران ربات حذف شد.")
-        else:
-            bot.reply_to(message, "این کاربر ادمین نیست.")
-    elif cmd == "/ddadmin":
-        admins.clear()
-        bot.reply_to(message, "تمام مدیران ربات حذف شدند.")
+حذف webhook برای جلوگیری از خطای 409 هنگام polling
 
-# --- ثبت تاریخ تولد با دستور /old ---
-@bot.message_handler(regexp=r"^/old\s+(\d{4}/\d{1,2}/\d{1,2})$")
-def set_birthday(message):
-    user_id = message.from_user.id
-    match = re.match(r"^/old\s+(\d{4}/\d{1,2}/\d{1,2})$", message.text)
-    if not match:
-        bot.reply_to(message, "فرمت تاریخ اشتباه است. مثال صحیح: /old 1370/1/11")
-        return
-    birthday = match.group(1)
-    user = users[user_id]
-    if user['coins'] < 25:
-        bot.reply_to(message, "موجودی سکه شما کافی نیست برای ثبت تاریخ تولد.")
-        return
-    user['birthday'] = birthday
-    user['coins'] -= 25
-    bot.reply_to(message, f"تاریخ تولد شما با موفقیت ثبت شد: {birthday}\n۲۵ سکه از حسابتان کسر گردید.")
+def remove_webhook():
+bot.remove_webhook()
 
-# --- ثبت هشتگ اختصاصی با دستور /mytag ---
-@bot.message_handler(regexp=r"^/mytag\s+#\S+$")
-def set_hashtag(message):
-    user_id = message.from_user.id
-    hashtag = message.text.split(maxsplit=1)[1]
-    user = users[user_id]
-    if user['coins'] < 80:
-        bot.reply_to(message, "موجودی سکه شما کافی نیست برای ثبت هشتگ.")
-        return
-    user['hashtag'] = hashtag
-    user['coins'] -= 80
-    bot.reply_to(message, f"کاربر عزیز هشتگ {hashtag} شما با موفقیت ثبت شد و ۸۰ سکه از حساب شما کسر شد.")
+remove_webhook()
 
-# --- ثبت شکلک اختصاصی با دستور /emoji ---
-@bot.message_handler(commands=["emoji"])
-def set_emoji(message):
-    user_id = message.from_user.id
-    user = users[user_id]
-    # برای سادگی اینجا فقط پیام بدیم، میتونیم دستور کامل تر بنویسیم بعدا
-    bot.reply_to(message, "برای ثبت شکلک اختصاصی، لطفا دستور کامل را ارسال کنید یا این بخش را بعدا کامل میکنیم.")
+دستور شروع برای خوشامدگویی ساده (بعداً تکمیل می‌کنیم)
 
-# --- خرید حیوان خانگی و فروشگاه ---
+@bot.message_handler(commands=['start'])
+def start_handler(message):
+add_user_if_not_exist(message.from_user)
+bot.reply_to(message, f"سلام {message.from_user.first_name} عزیز! خوش آمدی به ربات ما. برای مشاهده پروفایلت دستور /my را بفرست.")
 
-pet_store = {
-    "🐺": ("گرگ", 150),
-    "🦁": ("شیر", 350),
-    "🐉": ("اژدها", 400),
-    "🐣": ("جوجه", 45),
-    "🐰": ("خرگوش", 35),
-    "🦊": ("روباه", 45),
-    "🐱": ("گربه", 30),
-    "🐶": ("سگ", 45),
-    "🐪": ("شتر", 60),
-    "🦌": ("گوزن", 30),
-    "🦈": ("کوسه", 55),
-    "🐆": ("پلنگ", 90)
+دستور /my برای نمایش پروفایل خود کاربر یا کاربر ریپلای شده (برای مدیران و مالک)
+
+@bot.message_handler(commands=['my'])
+def my_profile_handler(message):
+add_user_if_not_exist(message.from_user)
+target_id = message.from_user.id
+if message.reply_to_message:
+target_id = message.reply_to_message.from_user.id
+elif len(message.text.split()) > 1:
+# امکان استفاده از آیدی عددی بعد از /my
+parts = message.text.split()
+if parts[1].isdigit():
+target_id = int(parts[1])
+if not is_admin(message.from_user.id) and target_id != message.from_user.id:
+bot.reply_to(message, "⚠️ فقط مدیران و مالک ربات می‌توانند پروفایل دیگران را ببینند.")
+return
+add_user_if_not_exist(message.from_user)
+profile = get_user_profile_text(target_id)
+bot.send_message(message.chat.id, profile)
+
+ثبت تاریخ تولد با دستور /old 1370/1/11
+
+@bot.message_handler(regexp=r'^/old (\d{4}/\d{1,2}/\d{1,2})$')
+def register_birthdate(message):
+user_id = message.from_user.id
+add_user_if_not_exist(message.from_user)
+text = message.text.strip()
+m = re.match(r'^/old (\d{4}/\d{1,2}/\d{1,2})$', text)
+if not m:
+bot.reply_to(message, "فرمت تاریخ اشتباه است. باید مانند مثال زیر باشد:\n/old 1370/1/11")
+return
+birthdate = m.group(1)
+# کسر 25 سکه
+coins = add_coins(user_id, -25)
+if coins is None or coins < 0:
+bot.reply_to(message, "سکه کافی برای ثبت تاریخ تولد ندارید!")
+add_coins(user_id, 25)  # بازگرداندن سکه چون کافی نبود
+return
+update_user_field(user_id, 'birthdate', birthdate)
+bot.reply_to(message, f"🎉 تاریخ تولد شما با موفقیت ثبت شد: {birthdate}\nاز حساب شما 25 سکه کسر گردید.")
+
+ثبت هشتگ اختصاصی با /mytag #قدرت
+
+@bot.message_handler(regexp=r'^/mytag (#[\w\u0600-\u06FF]+)$')
+def register_hashtag(message):
+user_id = message.from_user.id
+add_user_if_not_exist(message.from_user)
+text = message.text.strip()
+m = re.match(r'^/mytag (#[\w\u0600-\u06FF]+)$', text)
+if not m:
+bot.reply_to(message, "فرمت هشتگ اشتباه است. باید مانند مثال زیر باشد:\n/mytag #قدرت")
+return
+hashtag = m.group(1)
+price = 80
+coins = add_coins(user_id, -price)
+if coins is None or coins < 0:
+bot.reply_to(message, "سکه کافی برای ثبت هشتگ ندارید!")
+add_coins(user_id, price)  # بازگرداندن سکه
+return
+update_user_field(user_id, 'hashtag', hashtag)
+bot.reply_to(message, f"✨ هشتگ {hashtag} شما با موفقیت ثبت شد و {price} سکه از حساب شما کسر شد.")
+
+ثبت شکلک اختصاصی با دستور /emoji 😊
+
+@bot.message_handler(regexp=r'^/emoji (.+)$')
+def register_emoji(message):
+user_id = message.from_user.id
+add_user_if_not_exist(message.from_user)
+emoji = message.text.split(' ',1)[1]
+price = 50
+coins = add_coins(user_id, -price)
+if coins is None or coins < 0:
+bot.reply_to(message, "سکه کافی برای ثبت شکلک اختصاصی ندارید!")
+add_coins(user_id, price)
+return
+update_user_field(user_id, 'emoji', emoji)
+bot.reply_to(message, f"😍 شکلک اختصاصی شما ثبت شد و {price} سکه از حساب شما کسر گردید.")
+
+خرید حیوان خانگی در /shop (قیمت‌ها)
+
+pets_prices = {
+"گرگ 🐺": 150,
+"شیر 🦁": 350,
+"اژدها 🐉": 400,
+"جوجه 🐥": 45,
+"خرگوش 🐇": 35,
+"روباه 🦊": 45,
+"گربه 🐱": 30,
+"سگ 🐕": 45,
+"شتر 🐫": 60,
+"گوزن 🦌": 30,
+"کوسه 🦈": 55,
+"پلنگ 🐆": 90
 }
 
-@bot.message_handler(commands=["shop"])
-def shop(message):
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("🎂 ثبت تولد (۲۵ 🪙)", callback_data="set_birthday"),
-        types.InlineKeyboardButton("🧿 خرید هشتگ (۸۰ 🪙)", callback_data="set_hashtag"),
-        types.InlineKeyboardButton("🖼️ شکلک اختصاصی (۵۰ 🪙)", callback_data="set_emoji"),
-        types.InlineKeyboardButton("🐾 خرید حیوان خانگی", callback_data="buy_pet"),
-        types.InlineKeyboardButton("💠 قدرت ویژه (در حال ساخت)", callback_data="coming_soon"),
-        types.InlineKeyboardButton("🚪 خروج از فروشگاه", callback_data="exit_shop")
-    )
-    bot.send_message(message.chat.id, "🛍️ خوش آمدی به فروشگاه فرم\nروی یکی از گزینه‌ها کلیک کن:", reply_markup=markup)
+دستور فروشگاه با دکمه‌ها
 
-@bot.callback_query_handler(func=lambda call: call.data == "buy_pet")
-def pet_menu(call):
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    for emoji, (name, price) in pet_store.items():
-        markup.add(types.InlineKeyboardButton(f"{emoji} {name} ({price} 🪙)", callback_data=f"buy_{emoji}"))
-    markup.add(types.InlineKeyboardButton("🚫 انصراف", callback_data="exit_shop"))
-    bot.edit_message_text("🐾 لطفاً حیوان خانگی مورد علاقه‌تو انتخاب کن:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+@bot.message_handler(commands=['shop'])
+def shop_handler(message):
+user_id = message.from_user.id
+add_user_if_not_exist(message.from_user)
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
-def handle_pet_buy(call):
-    user_id = call.from_user.id
-    emoji = call.data.replace("buy_", "")
-    if emoji in pet_store:
-        name, cost = pet_store[emoji]
-        if users[user_id]["coins"] >= cost:
-            if emoji not in [e for e, n in users[user_id]["pets"]]:
-                users[user_id]["coins"] -= cost
-                users[user_id]["pets"].append((emoji, name))
-                pets_text = " - ".join([f"{e} {n}" for e, n in users[user_id]["pets"]])
-                bot.edit_message_text(f"{emoji} {name} با موفقیت خریداری شد!\n💰 {cost} سکه از حسابت کم شد.", call.message.chat.id, call.message.message_id)
-            else:
-                bot.answer_callback_query(call.id, "این حیوان را قبلاً خریدی عزیزم 💕", show_alert=True)
-        else:
-            bot.answer_callback_query(call.id, "سکه‌هات کافی نیست عشقم! 🥺", show_alert=True)
+markup = types.InlineKeyboardMarkup(row_width=2)  
+for pet, price in pets_prices.items():  
+    markup.add(types.InlineKeyboardButton(f"{pet} — قیمت: {price} 🪙", callback_data=f"buy_pet|{pet}"))  
+markup.add(types.InlineKeyboardButton("ثبت تاریخ تولد 🎂 — قیمت: 25 🪙", callback_data="buy_birthdate"))  
+markup.add(types.InlineKeyboardButton("ثبت هشتگ اختصاصی ♨️ — قیمت: 80 🪙", callback_data="buy_hashtag"))  
+markup.add(types.InlineKeyboardButton("ثبت شکلک اختصاصی ♥️ — قیمت: 50 🪙", callback_data="buy_emoji"))  
+bot.send_message(message.chat.id, "🎁 فروشگاه ربات: محصولات زیر را می‌توانید بخرید:", reply_markup=markup)
 
-@bot.message_handler(func=lambda msg: msg.text and msg.text.startswith("- "))
-def remove_pet(msg):
-    user_id = msg.from_user.id
-    emoji = msg.text.replace("- ", "").strip()
-    for e, name in users[user_id]["pets"]:
-        if e == emoji:
-            users[user_id]["pets"].remove((e, name))
-            bot.reply_to(msg, f"{e} {name} با موفقیت از لیست حیوانات خانگی شما حذف گردید! 🥲")
-            return
-    bot.reply_to(msg, "این حیوان در لیست شما یافت نشد 😕")
+هندلر کال‌بک‌ها برای خرید
 
-# --- دستورات افزودن و کسر سکه و امتیاز ---
-@bot.message_handler(func=lambda m: (is_admin(m.from_user.id) or m.from_user.id == owner_id) and m.reply_to_message and (m.text.startswith("+") or m.text.startswith("-")))
-def add_remove_coins_points(message):
-    try:
-        text = message.text.strip()
-        sign = text[0]
-        parts = text[1:].strip().split()
-        amount = int(parts[0])
-        user_id = message.reply_to_message.from_user.id
-        user = users[user_id]
+@bot.callback_query_handler(func=lambda call: True)
+def callback_query(call):
+user_id = call.from_user.id
+add_user_if_not_exist(call.from_user)
+data = call.data
 
-        if sign == "+":
-            if "🪙" in text:
-                user["coins"] += amount
-                bot.reply_to(message, f"💰 {amount} سکه به حساب کاربر {user_id} ({message.reply_to_message.from_user.username or 'ندارد'}) اضافه شد.")
-            else:
-                user["points"] += amount
-                bot.reply_to(message, f"💎 {amount} امتیاز به حساب کاربر {user_id} ({message.reply_to_message.from_user.username or 'ندارد'}) اضافه شد.")
-        elif sign == "-":
-            if "🪙" in text:
-                user["coins"] = max(0, user["coins"] - amount)
-                bot.reply_to(message, f"💰 {amount} سکه از حساب کاربر {user_id} ({message.reply_to_message.from_user.username or 'ندارد'}) کسر شد.")
-            else:
-                user["points"] = max(0, user["points"] - amount)
-                bot.reply_to(message, f"💎 {amount} امتیاز از حساب کاربر {user_id} ({message.reply_to_message.from_user.username or 'ندارد'}) کسر شد.")
-    except Exception as e:
-        bot.reply_to(message, "فرمت دستور اشتباه است یا مقدار عددی معتبر نیست.")
+if data.startswith("buy_pet|"):  
+    pet_name = data.split("|")[1]  
+    price = pets_prices.get(pet_name, None)  
+    if price is None:  
+        bot.answer_callback_query(call.id, "این حیوان موجود نیست.")  
+        return  
+    coins = add_coins(user_id, -price)  
+    if coins is None or coins < 0:  
+        add_coins(user_id, price)  # برگشت سکه  
+        bot.answer_callback_query(call.id, "سکه کافی برای خرید این حیوان ندارید!")  
+        return  
+    # اضافه کردن حیوان به فرم  
+    cursor.execute("SELECT pet FROM users WHERE user_id=?", (user_id,))  
+    current_pets = cursor.fetchone()[0]  
+    if current_pets:  
+        new_pets = current_pets + " - " + pet_name  
+    else:  
+        new_pets = pet_name  
+    update_user_field(user_id, 'pet', new_pets)  
+    bot.answer_callback_query(call.id, f"🎉 حیوان {pet_name} با موفقیت خریداری شد!")  
+    bot.send_message(call.message.chat.id, f"🎉 حیوان {pet_name} به پروفایل شما اضافه شد و {price} سکه از حساب شما کسر گردید.")  
 
+elif data == "buy_birthdate":  
+    bot.send_message(user_id, "لطفاً تاریخ تولد خود را به صورت زیر وارد کنید و ارسال کنید:\nمثال:\n/old 1370/1/11\n\nتوجه: ثبت تاریخ تولد ۲۵ سکه هزینه دارد.")  
+    bot.answer_callback_query(call.id, "دستور ثبت تاریخ تولد به پیوی شما ارسال شد.")  
+
+elif data == "buy_hashtag":  
+    bot.send_message(user_id, "لطفاً هشتگ خود را به صورت زیر وارد کنید و ارسال کنید:\nمثال:\n/mytag #قدرت\n\nتوجه: ثبت هشتگ ۸۰ سکه هزینه دارد.")  
+    bot.answer_callback_query(call.id, "دستور ثبت هشتگ به پیوی شما ارسال شد.")  
+
+elif data == "buy_emoji":  
+    bot.send_message(user_id, "لطفاً شکلک اختصاصی خود را به صورت زیر وارد کنید و ارسال کنید:\nمثال:\n/emoji 😊\n\nتوجه: ثبت شکلک اختصاصی ۵۰ سکه هزینه دارد.")  
+    bot.answer_callback_query(call.id, "دستور ثبت شکلک اختصاصی به پیوی شما ارسال شد.")
+
+حذف حیوان با دستور - 🐫
+
+@bot.message_handler(regexp=r'^- (.+)$')
+def remove_pet_handler(message):
+user_id = message.from_user.id
+add_user_if_not_exist(message.from_user)
+pet_to_remove = message.text[2:].strip()
+cursor.execute("SELECT pet FROM users WHERE user_id=?", (user_id,))
+pets = cursor.fetchone()[0]
+if not pets:
+bot.reply_to(message, "شما هیچ حیوانی ندارید که حذف کنید.")
+return
+pet_list = [p.strip() for p in pets.split(" - ")]
+if pet_to_remove not in pet_list:
+bot.reply_to(message, f"حیوان {pet_to_remove} در پروفایل شما یافت نشد.")
+return
+pet_list.remove(pet_to_remove)
+new_pets = " - ".join(pet_list) if pet_list else ""
+update_user_field(user_id, 'pet', new_pets)
+bot.reply_to(message, f"حیوان {pet_to_remove} با موفقیت از لیست جانوران خانگی شما حذف گردید! 🥲")
+
+افزودن و حذف ادمین
+
+@bot.message_handler(commands=['admin', 'dadmin', 'ddadmin'])
+def admin_commands(message):
+user_id = message.from_user.id
+if user_id != OWNER_ID:
+bot.reply_to(message, "⚠️ فقط مالک ربات می‌تواند این دستورات را اجرا کند.")
+return
+cmd = message.text.split()[0]
+if not message.reply_to_message:
+bot.reply_to(message, "⚠️ باید روی پیام شخص مورد نظر ریپلای کنید.")
+return
+target_id = message.reply_to_message.from_user.id
+if cmd == '/admin':
+cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (target_id,))
+conn.commit()
+bot.reply_to(message, f"✅ کاربر با ایدی {target_id} به مدیران ربات افزوده شد.")
+elif cmd == '/dadmin':
+cursor.execute("DELETE FROM admins WHERE user_id=?", (target_id,))
+conn.commit()
+bot.reply_to(message, f"✅ کاربر با ایدی {target_id} از مدیران ربات حذف شد.")
+elif cmd == '/ddadmin':
+cursor.execute("DELETE FROM admins")
+conn.commit()
+bot.reply_to(message, "✅ تمام مدیران ربات حذف شدند.")
+
+اضافه و کم کردن سکه و امتیاز
+
+@bot.message_handler(regexp=r'^(+|-)\s*(\d+)\s*(🪙)?$')
+def add_subtract_coins_points(message):
+user_id = message.from_user.id
+if not is_admin(user_id):
+bot.reply_to(message, "⚠️ فقط مدیران و مالک ربات می‌توانند از این دستور استفاده کنند.")
+return
+if not message.reply_to_message:
+bot.reply_to(message, "⚠️ برای اضافه یا کسر کردن باید روی پیام فرد مورد نظر ریپلای کنید.")
+return
+target_id = message.reply_to_message.from_user.id
+text = message.text.strip()
+m = re.match(r'^(+|-)\s*(\d+)\s*(🪙)?$', text)
+if not m:
+bot.reply_to(message, "فرمت دستور اشتباه است.")
+return
+sign = m.group(1)
+amount = int(m.group(2))
+is_coin = m.group(3) == '🪙'  # اگر بود یعنی سکه، اگر نبود یعنی امتیاز
+
+if is_coin:  
+    if sign == '+':  
+        new_coins = add_coins(target_id, amount)  
+        bot.reply_to(message, f"🎉 {amount} سکه به کاربر {target_id} اضافه شد! 🪙")  
+    else:  
+        new_coins = add_coins(target_id, -amount)  
+        bot.reply_to(message, f"⚠️ {amount} سکه از کاربر {target_id} کسر شد! 🪙")  
+else:  
+    if sign == '+':  
+        new_points = add_points(target_id, amount)  
+        bot.reply_to(message, f"🎉 {amount} امتیاز به کاربر {target_id} اضافه شد! 💎")  
+    else:  
+        new_points = add_points(target_id, -amount)  
+        bot.reply_to(message, f"⚠️ {amount} امتیاز از کاربر {target_id} کسر شد! 💎")
+
+امتیازدهی با هر 4 پیام (سکه نه، فقط امتیاز)
+
+@bot.message_handler(func=lambda message: True)
+def message_counter(message):
+global message_counts, pm_awarding_active
+user_id = message.from_user.id
+add_user_if_not_exist(message.from_user)
+
+if not pm_awarding_active:  
+    return  
+
+if user_id not in message_counts:  
+    message_counts[user_id] = 1  
+else:  
+    message_counts[user_id] += 1  
+
+if message_counts[user_id] >= 4:  
+    add_points(user_id, 1)  
+    message_counts[user_id] = 0  
+    # ربات چیزی نمی‌فرسته، فقط امتیاز میده
+
+دستور روشن و خاموش کردن امتیازدهی پیام
+
+@bot.message_handler(commands=['offpm'])
+def disable_pm_award(message):
+global pm_awarding_active
+if not is_admin(message.from_user.id):
+return
+pm_awarding_active = False
+bot.reply_to(message, "✅ سیستم امتیازدهی با پیام خاموش شد.")
+
+@bot.message_handler(commands=['onpm'])
+def enable_pm_award(message):
+global pm_awarding_active
+if not is_admin(message.from_user.id):
+return
+pm_awarding_active = True
+bot.reply_to(message, "✅ سیستم امتیازدهی با پیام فعال شد.")
+
+اجرای ربات
+
+bot.infinity_polling()
+
+:: در گروه ::::  
+  
+▪︎🏆 درجه شما در گروه: {rank}  
+▪︎💠 مقام شما در گروه: {position}  
+"""  
+    return profile_text  
+  
+# دریافت نام کشور به صورت پیش‌فرض ایران  
+def get_country(user_id):  
+    return "🇮🇷 ایران"  
+  
+# حذف webhook برای جلوگیری از خطای 409 هنگام polling  
+def remove_webhook():  
+    bot.remove_webhook()  
+  
+remove_webhook()  
+  
+# دستور شروع برای خوشامدگویی ساده (بعداً تکمیل می‌کنیم)  
+@bot.message_handler(commands=['start'])  
+def start_handler(message):  
+    add_user_if_not_exist(message.from_user)  
+    bot.reply_to(message, f"سلام {message.from_user.first_name} عزیز! خوش آمدی به ربات ما. برای مشاهده پروفایلت دستور /my را بفرست.")  
+  
+# دستور /my برای نمایش پروفایل خود کاربر یا کاربر ریپلای شده (برای مدیران و مالک)  
+@bot.message_handler(commands=['my'])  
+def my_profile_handler(message):  
+    add_user_if_not_exist(message.from_user)  
+    target_id = message.from_user.id  
+    if message.reply_to_message:  
+        target_id = message.reply_to_message.from_user.id  
+    elif len(message.text.split()) > 1:  
+        # امکان استفاده از آیدی عددی بعد از /my  
+        parts = message.text.split()  
+        if parts[1].isdigit():  
+            target_id = int(parts[1])  
+    if not is_admin(message.from_user.id) and target_id != message.from_user.id:  
+        bot.reply_to(message, "⚠️ فقط مدیران و مالک ربات می‌توانند پروفایل دیگران را ببینند.")  
+        return  
+    add_user_if_not_exist(message.from_user)  
+    profile = get_user_profile_text(target_id)  
+    bot.send_message(message.chat.id, profile)  
+  
+# ثبت تاریخ تولد با دستور /old 1370/1/11  
+@bot.message_handler(regexp=r'^/old (\d{4}/\d{1,2}/\d{1,2})$')  
+def register_birthdate(message):  
+    user_id = message.from_user.id  
+    add_user_if_not_exist(message.from_user)  
+    text = message.text.strip()  
+    m = re.match(r'^/old (\d{4}/\d{1,2}/\d{1,2})$', text)  
+    if not m:  
+        bot.reply_to(message, "فرمت تاریخ اشتباه است. باید مانند مثال زیر باشد:\n/old 1370/1/11")  
+        return  
+    birthdate = m.group(1)  
+    # کسر 25 سکه  
+    coins = add_coins(user_id, -25)  
+    if coins is None or coins < 0:  
+        bot.reply_to(message, "سکه کافی برای ثبت تاریخ تولد ندارید!")  
+        add_coins(user_id, 25)  # بازگرداندن سکه چون کافی نبود  
+        return  
+    update_user_field(user_id, 'birthdate', birthdate)  
+    bot.reply_to(message, f"🎉 تاریخ تولد شما با موفقیت ثبت شد: {birthdate}\nاز حساب شما 25 سکه کسر گردید.")  
+  
+# ثبت هشتگ اختصاصی با /mytag #قدرت  
+@bot.message_handler(regexp=r'^/mytag (#[\w\u0600-\u06FF]+)$')  
+def register_hashtag(message):  
+    user_id = message.from_user.id  
+    add_user_if_not_exist(message.from_user)  
+    text = message.text.strip()  
+    m = re.match(r'^/mytag (#[\w\u0600-\u06FF]+)$', text)  
+    if not m:  
+        bot.reply_to(message, "فرمت هشتگ اشتباه است. باید مانند مثال زیر باشد:\n/mytag #قدرت")  
+        return  
+    hashtag = m.group(1)  
+    price = 80  
+    coins = add_coins(user_id, -price)  
+    if coins is None or coins < 0:  
+        bot.reply_to(message, "سکه کافی برای ثبت هشتگ ندارید!")  
+        add_coins(user_id, price)  # بازگرداندن سکه  
+        return  
+    update_user_field(user_id, 'hashtag', hashtag)  
+    bot.reply_to(message, f"✨ هشتگ {hashtag} شما با موفقیت ثبت شد و {price} سکه از حساب شما کسر شد.")  
+  
+# ثبت شکلک اختصاصی با دستور /emoji 😊  
+@bot.message_handler(regexp=r'^/emoji (.+)$')  
+def register_emoji(message):  
+    user_id = message.from_user.id  
+    add_user_if_not_exist(message.from_user)  
+    emoji = message.text.split(' ',1)[1]  
+    price = 50  
+    coins = add_coins(user_id, -price)  
+    if coins is None or coins < 0:  
+        bot.reply_to(message, "سکه کافی برای ثبت شکلک اختصاصی ندارید!")  
+        add_coins(user_id, price)  
+        return  
+    update_user_field(user_id, 'emoji', emoji)  
+    bot.reply_to(message, f"😍 شکلک اختصاصی شما ثبت شد و {price} سکه از حساب شما کسر گردید.")  
+  
+# خرید حیوان خانگی در /shop (قیمت‌ها)  
+pets_prices = {  
+    "گرگ 🐺": 150,  
+    "شیر 🦁": 350,  
+    "اژدها 🐉": 400,  
+    "جوجه 🐥": 45,  
+    "خرگوش 🐇": 35,  
+    "روباه 🦊": 45,  
+    "گربه 🐱": 30,  
+    "سگ 🐕": 45,  
+    "شتر 🐫": 60,  
+    "گوزن 🦌": 30,  
+    "کوسه 🦈": 55,  
+    "پلنگ 🐆": 90  
+}  
+  
+# دستور فروشگاه با دکمه‌ها  
+@bot.message_handler(commands=['shop'])  
+def shop_handler(message):  
+    user_id = message.from_user.id  
+    add_user_if_not_exist(message.from_user)  
+  
+    markup = types.InlineKeyboardMarkup(row_width=2)  
+    for pet, price in pets_prices.items():  
+        markup.add(types.InlineKeyboardButton(f"{pet} — قیمت: {price} 🪙", callback_data=f"buy_pet|{pet}"))  
+    markup.add(types.InlineKeyboardButton("ثبت تاریخ تولد 🎂 — قیمت: 25 🪙", callback_data="buy_birthdate"))  
+    markup.add(types.InlineKeyboardButton("ثبت هشتگ اختصاصی ♨️ — قیمت: 80 🪙", callback_data="buy_hashtag"))  
+    markup.add(types.InlineKeyboardButton("ثبت شکلک اختصاصی ♥️ — قیمت: 50 🪙", callback_data="buy_emoji"))  
+    bot.send_message(message.chat.id, "🎁 فروشگاه ربات: محصولات زیر را می‌توانید بخرید:", reply_markup=markup)  
+  
+# هندلر کال‌بک‌ها برای خرید  
+@bot.callback_query_handler(func=lambda call: True)  
+def callback_query(call):  
+    user_id = call.from_user.id  
+    add_user_if_not_exist(call.from_user)  
+    data = call.data  
+  
+    if data.startswith("buy_pet|"):  
+        pet_name = data.split("|")[1]  
+        price = pets_prices.get(pet_name, None)  
+        if price is None:  
+            bot.answer_callback_query(call.id, "این حیوان موجود نیست.")  
+            return  
+        coins = add_coins(user_id, -price)  
+        if coins is None or coins < 0:  
+            add_coins(user_id, price)  # برگشت سکه  
+            bot.answer_callback_query(call.id, "سکه کافی برای خرید این حیوان ندارید!")  
+            return  
+        # اضافه کردن حیوان به فرم  
+        cursor.execute("SELECT pet FROM users WHERE user_id=?", (user_id,))  
+        current_pets = cursor.fetchone()[0]  
+        if current_pets:  
+            new_pets = current_pets + " - " + pet_name  
+        else:  
+            new_pets = pet_name  
+        update_user_field(user_id, 'pet', new_pets)  
+        bot.answer_callback_query(call.id, f"🎉 حیوان {pet_name} با موفقیت خریداری شد!")  
+        bot.send_message(call.message.chat.id, f"🎉 حیوان {pet_name} به پروفایل شما اضافه شد و {price} سکه از حساب شما کسر گردید.")  
+  
+    elif data == "buy_birthdate":  
+        bot.send_message(user_id, "لطفاً تاریخ تولد خود را به صورت زیر وارد کنید و ارسال کنید:\nمثال:\n/old 1370/1/11\n\nتوجه: ثبت تاریخ تولد ۲۵ سکه هزینه دارد.")  
+        bot.answer_callback_query(call.id, "دستور ثبت تاریخ تولد به پیوی شما ارسال شد.")  
+  
+    elif data == "buy_hashtag":  
+        bot.send_message(user_id, "لطفاً هشتگ خود را به صورت زیر وارد کنید و ارسال کنید:\nمثال:\n/mytag #قدرت\n\nتوجه: ثبت هشتگ ۸۰ سکه هزینه دارد.")  
+        bot.answer_callback_query(call.id, "دستور ثبت هشتگ به پیوی شما ارسال شد.")  
+  
+    elif data == "buy_emoji":  
+        bot.send_message(user_id, "لطفاً شکلک اختصاصی خود را به صورت زیر وارد کنید و ارسال کنید:\nمثال:\n/emoji 😊\n\nتوجه: ثبت شکلک اختصاصی ۵۰ سکه هزینه دارد.")  
+        bot.answer_callback_query(call.id, "دستور ثبت شکلک اختصاصی به پیوی شما ارسال شد.")  
+  
+# حذف حیوان با دستور - 🐫  
+@bot.message_handler(regexp=r'^- (.+)$')  
+def remove_pet_handler(message):  
+    user_id = message.from_user.id  
+    add_user_if_not_exist(message.from_user)  
+    pet_to_remove = message.text[2:].strip()  
+    cursor.execute("SELECT pet FROM users WHERE user_id=?", (user_id,))  
+    pets = cursor.fetchone()[0]  
+    if not pets:  
+        bot.reply_to(message, "شما هیچ حیوانی ندارید که حذف کنید.")  
+        return  
+    pet_list = [p.strip() for p in pets.split(" - ")]  
+    if pet_to_remove not in pet_list:  
+        bot.reply_to(message, f"حیوان {pet_to_remove} در پروفایل شما یافت نشد.")  
+        return  
+    pet_list.remove(pet_to_remove)  
+    new_pets = " - ".join(pet_list) if pet_list else ""  
+    update_user_field(user_id, 'pet', new_pets)  
+    bot.reply_to(message, f"حیوان {pet_to_remove} با موفقیت از لیست جانوران خانگی شما حذف گردید! 🥲")  
+  
+# افزودن و حذف ادمین  
+@bot.message_handler(commands=['admin', 'dadmin', 'ddadmin'])  
+def admin_commands(message):  
+    user_id = message.from_user.id  
+    if user_id != OWNER_ID:  
+        bot.reply_to(message, "⚠️ فقط مالک ربات می‌تواند این دستورات را اجرا کند.")  
+        return  
+    cmd = message.text.split()[0]  
+    if not message.reply_to_message:  
+        bot.reply_to(message, "⚠️ باید روی پیام شخص مورد نظر ریپلای کنید.")  
+        return  
+    target_id = message.reply_to_message.from_user.id  
+    if cmd == '/admin':  
+        cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (target_id,))  
+        conn.commit()  
+        bot.reply_to(message, f"✅ کاربر با ایدی {target_id} به مدیران ربات افزوده شد.")  
+    elif cmd == '/dadmin':  
+        cursor.execute("DELETE FROM admins WHERE user_id=?", (target_id,))  
+        conn.commit()  
+        bot.reply_to(message, f"✅ کاربر با ایدی {target_id} از مدیران ربات حذف شد.")  
+    elif cmd == '/ddadmin':  
+        cursor.execute("DELETE FROM admins")  
+        conn.commit()  
+        bot.reply_to(message, "✅ تمام مدیران ربات حذف شدند.")  
+  
+# اضافه و کم کردن سکه و امتیاز  
+@bot.message_handler(regexp=r'^(\+|\-)\s*(\d+)\s*(🪙)?$')  
+def add_subtract_coins_points(message):  
+    user_id = message.from_user.id  
+    if not is_admin(user_id):  
+        bot.reply_to(message, "⚠️ فقط مدیران و مالک ربات می‌توانند از این دستور استفاده کنند.")  
+        return  
+    if not message.reply_to_message:  
+        bot.reply_to(message, "⚠️ برای اضافه یا کسر کردن باید روی پیام فرد مورد نظر ریپلای کنید.")  
+        return  
+    target_id = message.reply_to_message.from_user.id  
+    text = message.text.strip()  
+    m = re.match(r'^(\+|\-)\s*(\d+)\s*(🪙)?$', text)  
+    if not m:  
+        bot.reply_to(message, "فرمت دستور اشتباه است.")  
+        return  
+    sign = m.group(1)  
+    amount = int(m.group(2))  
+    is_coin = m.group(3) == '🪙'  # اگر بود یعنی سکه، اگر نبود یعنی امتیاز  
+  
+    if is_coin:  
+        if sign == '+':  
+            new_coins = add_coins(target_id, amount)  
+            bot.reply_to(message, f"🎉 {amount} سکه به کاربر {target_id} اضافه شد! 🪙")  
+        else:  
+            new_coins = add_coins(target_id, -amount)  
+            bot.reply_to(message, f"⚠️ {amount} سکه از کاربر {target_id} کسر شد! 🪙")  
+    else:  
+        if sign == '+':  
+            new_points = add_points(target_id, amount)  
+            bot.reply_to(message, f"🎉 {amount} امتیاز به کاربر {target_id} اضافه شد! 💎")  
+        else:  
+            new_points = add_points(target_id, -amount)  
+            bot.reply_to(message, f"⚠️ {amount} امتیاز از کاربر {target_id} کسر شد! 💎")  
+  
+# امتیازدهی با هر 4 پیام (سکه نه، فقط امتیاز)  
+@bot.message_handler(func=lambda message: True)  
+def message_counter(message):  
+    global message_counts, pm_awarding_active  
+    user_id = message.from_user.id  
+    add_user_if_not_exist(message.from_user)  
+  
+    if not pm_awarding_active:  
+        return  
+  
+    if user_id not in message_counts:  
+        message_counts[user_id] = 1  
+    else:  
+        message_counts[user_id] += 1  
+  
+    if message_counts[user_id] >= 4:  
+        add_points(user_id, 1)  
+        message_counts[user_id] = 0  
+        # ربات چیزی نمی‌فرسته، فقط امتیاز میده  
+  
+# دستور روشن و خاموش کردن امتیازدهی پیام  
+@bot.message_handler(commands=['offpm'])  
+def disable_pm_award(message):  
+    global pm_awarding_active  
+    if not is_admin(message.from_user.id):  
+        return  
+    pm_awarding_active = False  
+    bot.reply_to(message, "✅ سیستم امتیازدهی با پیام خاموش شد.")  
+  
+@bot.message_handler(commands=['onpm'])  
+def enable_pm_award(message):  
+    global pm_awarding_active  
+    if not is_admin(message.from_user.id):  
+        return  
+    pm_awarding_active = True  
+    bot.reply_to(message, "✅ سیستم امتیازدهی با پیام فعال شد.")  
+  
+# اجرای ربات  
 bot.infinity_polling()
