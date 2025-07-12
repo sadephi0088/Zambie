@@ -4,7 +4,7 @@ import re
 from flask import Flask, request
 from telebot import TeleBot, types
 
-TOKEN = 'توکن رباتت رو اینجا بزار'
+TOKEN = '7583760165:AAHzGN-N7nyHgFoWt9oamd2tgO7pLkKFWFs''
 OWNER_ID = 7341748124  # آیدی عددی خودت رو اینجا بذار
 
 bot = TeleBot(TOKEN)
