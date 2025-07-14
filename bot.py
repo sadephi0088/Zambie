@@ -16,7 +16,7 @@ time.sleep(1)
 conn = sqlite3.connect("data.db", check_same_thread=False)
 c = conn.cursor()
 
-# ساخت جدول کاربران
+# ساخت جدول کاربران با ستون rank_code برای مقام
 c.execute('''
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -30,18 +30,18 @@ CREATE TABLE IF NOT EXISTS users (
 ''')
 conn.commit()
 
-# لیست مقام‌ها با کد
+# دیکشنری مقام‌ها
 ranks = {
-    "m1": "سوگولی گروه 💖",
-    "m2": "پرنسس گروه 👑",
-    "m3": "ملکه گروه 👸",
-    "m4": "شوالیه گروه 🛡️",
-    "m5": "رهبر گروه 🔥",
-    "m6": "اونر گروه ⭐",
-    "m7": "زامبی آلفا گروه 🧟‍♂️",
-    "m8": "نفس گروه 💨",
-    "m9": "بادیگارد گروه 🛡️",
-    "m10": "ممبر عادی 👤"
+    "m1": "سوگولی گروه",
+    "m2": "پرنسس گروه",
+    "m3": "ملکه گروه",
+    "m4": "شوالیه گروه",
+    "m5": "رهبر گروه",
+    "m6": "اونر گروه",
+    "m7": "زامبی الفا گروه",
+    "m8": "نفس گروه",
+    "m9": "بادیگارد گروه",
+    "m10": "ممبر عادی"
 }
 
 # افزودن کاربر جدید
@@ -82,8 +82,8 @@ def show_profile(message):
     if data:
         tick = "دارد ✅" if data[5] == 1 or data[4] >= 5000 else "ندارد ❌"
         rank = get_rank(data[4])
-        user_rank_code = data[6] if len(data) > 6 else "m10"
-        user_rank = ranks.get(user_rank_code, "ممبر عادی 👤")
+        rank_code = data[6] if len(data) > 6 else "m10"
+        rank_name = ranks.get(rank_code, "ممبر عادی")
 
         text = f'''
 ━━━【 پروفایل شما در گروه 】━━━
@@ -113,7 +113,7 @@ def show_profile(message):
 :: در گروه :::::
 
 ▪︎🏆 درجه شما در گروه: {rank}
-▪︎💠 مقام شما در گروه: {user_rank}
+▪︎💠 مقام شما در گروه: {rank_name}
 '''
         bot.reply_to(message, text)
 
@@ -171,38 +171,42 @@ def control_points(message):
         conn.commit()
         bot.reply_to(message, f"💔 {amount} امتیاز از <code>{uid}</code> کم شد!\nولی نگران نباش، جبران میشه! 💪", parse_mode="HTML")
 
-# مدیریت مقام با کدهای m1 تا m10 توسط مالک
-@bot.message_handler(func=lambda m: m.reply_to_message and m.from_user.id == OWNER_ID)
-def manage_rank_code(message):
-    text = message.text.strip()
-    uid = message.reply_to_message.from_user.id
-
-    if re.match(r'^[\+\-]m\d+$', text):
+    # مدیریت مقام‌ها
+    elif re.match(r'^[\+\-]m\d+$', text):
         op = text[0]  # + یا -
-        code = text[1:]  # مثلاً m1، m2 و ...
+        code = text[1:]  # مثلا m4
+
+        print(f"[DEBUG] مدیریت مقام: عملیات={op}, کد={code}, آی‌دی کاربر={uid}")
 
         if code not in ranks:
             bot.reply_to(message, "⚠ کد مقام معتبر نیست.")
+            print(f"[DEBUG] کد مقام نامعتبر: {code}")
             return
 
         c.execute("SELECT rank_code FROM users WHERE user_id = ?", (uid,))
         res = c.fetchone()
         current_code = res[0] if res else "m10"
+        print(f"[DEBUG] مقام فعلی کاربر: {current_code}")
 
         if op == '+':
             if current_code == code:
                 bot.reply_to(message, f"⚠ کاربر قبلاً مقام «{ranks[code]}» را دارد.")
+                print(f"[DEBUG] کاربر قبلاً این مقام را دارد: {code}")
             else:
                 c.execute("UPDATE users SET rank_code = ? WHERE user_id = ?", (code, uid))
                 conn.commit()
                 bot.reply_to(message, f"✔ مقام «{ranks[code]}» به کاربر داده شد.")
+                print(f"[DEBUG] مقام داده شد: {code}")
+
         elif op == '-':
             if current_code == code:
                 c.execute("UPDATE users SET rank_code = 'm10' WHERE user_id = ?", (uid,))
                 conn.commit()
                 bot.reply_to(message, f"✔ مقام «{ranks[code]}» از کاربر گرفته شد و به «ممبر عادی» برگشت.")
+                print(f"[DEBUG] مقام گرفته شد: {code}")
             else:
                 bot.reply_to(message, f"⚠ کاربر این مقام را ندارد.")
+                print(f"[DEBUG] کاربر این مقام را ندارد: {code}")
 
 # شروع ربات
 bot.infinity_polling()
