@@ -8,15 +8,13 @@ TOKEN = "7583760165:AAHzGN-N7nyHgFoWt9oamd2tgO7pLkKFWFs"
 OWNER_ID = 7341748124
 bot = telebot.TeleBot(TOKEN)
 
-# حذف وب‌هوک قبلی برای جلوگیری از ارور 409
 bot.remove_webhook()
 time.sleep(1)
 
-# اتصال به دیتابیس
 conn = sqlite3.connect("data.db", check_same_thread=False)
 c = conn.cursor()
 
-# ساخت جدول کاربران با ستون rank_code برای مقام
+# اضافه کردن ستون مقام در صورت نیاز
 c.execute('''
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -25,26 +23,30 @@ CREATE TABLE IF NOT EXISTS users (
     coin INTEGER DEFAULT 180,
     score INTEGER DEFAULT 250,
     gold_tick INTEGER DEFAULT 0,
-    rank_code TEXT DEFAULT 'm10'
+    role TEXT DEFAULT 'ممبر عادی 🧍'
 )
 ''')
 conn.commit()
 
-# دیکشنری مقام‌ها
+# دیکشنری مقام‌ها با ایموجی
 ranks = {
-    "m1": "سوگولی گروه",
-    "m2": "پرنسس گروه",
-    "m3": "ملکه گروه",
-    "m4": "شوالیه گروه",
-    "m5": "رهبر گروه",
-    "m6": "اونر گروه",
-    "m7": "زامبی الفا گروه",
-    "m8": "نفس گروه",
-    "m9": "بادیگارد گروه",
-    "m10": "ممبر عادی"
+    "m1": "سوگولی گروه 💋",
+    "m2": "پرنسس گروه 👑",
+    "m3": "ملکه گروه 👸",
+    "m4": "شوالیه گروه 🛡️",
+    "m5": "رهبر گروه 🦁",
+    "m6": "اونر گروه 🌀",
+    "m7": "زامبی الفا گروه 🧟‍♂️",
+    "m8": "نفس گروه 💨",
+    "m9": "بادیگارد گروه 🕶️",
+    "m10": "ممبر عادی 🧍",
+    "m11": "عاشق دلباخته ❤️‍🔥",
+    "m12": "برده گروه 🧎",
+    "m13": "رئیس گروه 🧠",
+    "m14": "کصشرگوی گروه 🐵",
+    "m15": "دختر شاه 👑👧"
 }
 
-# افزودن کاربر جدید
 def add_user(message):
     user_id = message.from_user.id
     name = message.from_user.first_name
@@ -55,7 +57,6 @@ def add_user(message):
         c.execute("INSERT INTO users (user_id, name, username) VALUES (?, ?, ?)", (user_id, name, username))
         conn.commit()
 
-# تابع درجه‌بندی بر اساس امتیاز
 def get_rank(score):
     if score < 500:
         return "تازه‌کار 👶"
@@ -72,7 +73,6 @@ def get_rank(score):
     else:
         return "اسطوره 🚀"
 
-# دستور /my برای نمایش پروفایل
 @bot.message_handler(commands=['my'])
 def show_profile(message):
     add_user(message)
@@ -82,8 +82,7 @@ def show_profile(message):
     if data:
         tick = "دارد ✅" if data[5] == 1 or data[4] >= 5000 else "ندارد ❌"
         rank = get_rank(data[4])
-        rank_code = data[6] if len(data) > 6 else "m10"
-        rank_name = ranks.get(rank_code, "ممبر عادی")
+        role = data[6] if data[6] else "ممبر عادی 🧍"
 
         text = f'''
 ━━━【 پروفایل شما در گروه 】━━━
@@ -113,11 +112,10 @@ def show_profile(message):
 :: در گروه :::::
 
 ▪︎🏆 درجه شما در گروه: {rank}
-▪︎💠 مقام شما در گروه: {rank_name}
+▪︎💠 مقام شما در گروه: {role}
 '''
         bot.reply_to(message, text)
 
-# دستور /tik برای فعال‌سازی تیک طلایی
 @bot.message_handler(commands=['tik'])
 def give_tick(message):
     if message.reply_to_message and message.from_user.id == OWNER_ID:
@@ -126,7 +124,6 @@ def give_tick(message):
         conn.commit()
         bot.reply_to(message, "⚜️ نشان تایید طلایی برای این کاربر فعال شد ✅")
 
-# دستور /dtik برای حذف تیک طلایی
 @bot.message_handler(commands=['dtik'])
 def remove_tick(message):
     if message.reply_to_message and message.from_user.id == OWNER_ID:
@@ -135,78 +132,52 @@ def remove_tick(message):
         conn.commit()
         bot.reply_to(message, "❌ نشان تایید طلایی از این کاربر برداشته شد.")
 
-# مدیریت سکه و امتیاز با ریپلای
 @bot.message_handler(func=lambda m: m.reply_to_message)
 def control_points(message):
     if message.from_user.id != OWNER_ID:
         return
+
     uid = message.reply_to_message.from_user.id
     text = message.text.strip()
 
-    # افزودن سکه  
+    # سکه
     if re.match(r'^\+ 🪙 \d+$', text):
         amount = int(text.split()[-1])
         c.execute("UPDATE users SET coin = coin + ? WHERE user_id = ?", (amount, uid))
         conn.commit()
-        bot.reply_to(message, f"💰 تعداد {amount} سکه به حساب <code>{uid}</code> اضافه شد!\n✨ ثروتت داره بیشتر میشه 😎", parse_mode="HTML")
+        bot.reply_to(message, f"💰 {amount} سکه به حساب {uid} اضافه شد!", parse_mode="HTML")
 
-    # کم کردن سکه  
     elif re.match(r'^\- 🪙 \d+$', text):
         amount = int(text.split()[-1])
         c.execute("UPDATE users SET coin = coin - ? WHERE user_id = ?", (amount, uid))
         conn.commit()
-        bot.reply_to(message, f"💸 تعداد {amount} سکه از حساب <code>{uid}</code> کم شد!\nمراقب باش که صفر نشی! 🫣", parse_mode="HTML")
+        bot.reply_to(message, f"💸 {amount} سکه از حساب {uid} کم شد!", parse_mode="HTML")
 
-    # افزودن امتیاز  
+    # امتیاز
     elif re.match(r'^\+ \d+$', text):
         amount = int(text.split()[-1])
         c.execute("UPDATE users SET score = score + ? WHERE user_id = ?", (amount, uid))
         conn.commit()
-        bot.reply_to(message, f"🎉 {amount} امتیاز به <code>{uid}</code> اضافه شد!\nدرخششت مبارک! 🌟", parse_mode="HTML")
+        bot.reply_to(message, f"🎉 {amount} امتیاز اضافه شد!", parse_mode="HTML")
 
-    # کم کردن امتیاز  
     elif re.match(r'^\- \d+$', text):
         amount = int(text.split()[-1])
         c.execute("UPDATE users SET score = score - ? WHERE user_id = ?", (amount, uid))
         conn.commit()
-        bot.reply_to(message, f"💔 {amount} امتیاز از <code>{uid}</code> کم شد!\nولی نگران نباش، جبران میشه! 💪", parse_mode="HTML")
+        bot.reply_to(message, f"💔 {amount} امتیاز کم شد!", parse_mode="HTML")
 
-    # مدیریت مقام‌ها
-    elif re.match(r'^[\+\-]m\d+$', text):
-        op = text[0]  # + یا -
-        code = text[1:]  # مثلا m4
+    # مقام اضافه کردن
+    elif re.match(r'^\+m\d{1,2}$', text):
+        key = text[1:]
+        if key in ranks:
+            c.execute("UPDATE users SET role = ? WHERE user_id = ?", (ranks[key], uid))
+            conn.commit()
+            bot.reply_to(message, f"👑 مقام جدید: <b>{ranks[key]}</b> برای کاربر ثبت شد!", parse_mode="HTML")
 
-        print(f"[DEBUG] مدیریت مقام: عملیات={op}, کد={code}, آی‌دی کاربر={uid}")
+    # مقام حذف کردن
+    elif re.match(r'^\-m\d{1,2}$', text):
+        c.execute("UPDATE users SET role = 'ممبر عادی 🧍' WHERE user_id = ?", (uid,))
+        conn.commit()
+        bot.reply_to(message, "🔻 مقام کاربر حذف شد و به حالت پیش‌فرض برگشت.")
 
-        if code not in ranks:
-            bot.reply_to(message, "⚠ کد مقام معتبر نیست.")
-            print(f"[DEBUG] کد مقام نامعتبر: {code}")
-            return
-
-        c.execute("SELECT rank_code FROM users WHERE user_id = ?", (uid,))
-        res = c.fetchone()
-        current_code = res[0] if res else "m10"
-        print(f"[DEBUG] مقام فعلی کاربر: {current_code}")
-
-        if op == '+':
-            if current_code == code:
-                bot.reply_to(message, f"⚠ کاربر قبلاً مقام «{ranks[code]}» را دارد.")
-                print(f"[DEBUG] کاربر قبلاً این مقام را دارد: {code}")
-            else:
-                c.execute("UPDATE users SET rank_code = ? WHERE user_id = ?", (code, uid))
-                conn.commit()
-                bot.reply_to(message, f"✔ مقام «{ranks[code]}» به کاربر داده شد.")
-                print(f"[DEBUG] مقام داده شد: {code}")
-
-        elif op == '-':
-            if current_code == code:
-                c.execute("UPDATE users SET rank_code = 'm10' WHERE user_id = ?", (uid,))
-                conn.commit()
-                bot.reply_to(message, f"✔ مقام «{ranks[code]}» از کاربر گرفته شد و به «ممبر عادی» برگشت.")
-                print(f"[DEBUG] مقام گرفته شد: {code}")
-            else:
-                bot.reply_to(message, f"⚠ کاربر این مقام را ندارد.")
-                print(f"[DEBUG] کاربر این مقام را ندارد: {code}")
-
-# شروع ربات
 bot.infinity_polling()
