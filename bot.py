@@ -14,7 +14,7 @@ time.sleep(1)
 conn = sqlite3.connect("data.db", check_same_thread=False)
 c = conn.cursor()
 
-# جدول کاربران با ستون مقام (role)
+# اضافه کردن ستون مقام در صورت نیاز
 c.execute('''
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -107,7 +107,7 @@ def show_profile(message):
 
 🌙 شکلک اختصاصی:
 🎂 تاریخ تولدت:
-🔮 قدرت‌ها و طلسم‌ها: ( نحوه‌اجرا /shop )
+🔮 قدرت‌ها و طلسم‌ها: (نحوه اجرا /shop)
 
 :: در گروه :::::
 
@@ -131,6 +131,66 @@ def remove_tick(message):
         c.execute("UPDATE users SET gold_tick = 0 WHERE user_id = ?", (uid,))
         conn.commit()
         bot.reply_to(message, "❌ نشان تایید طلایی از این کاربر برداشته شد.")
+
+@bot.message_handler(commands=['shop'])
+def show_shop(message):
+    text = '''
+🎁 قدرت‌ها و طلسم‌های فعالت:
+
+1️⃣ 🧼 طلسم بپاک  
+   • دستور استفاده: ریپلای روی پیام + /del  
+   • هزینه: ۲۰ سکه  
+   • توضیح: پیام ریپلای‌شده را پاک می‌کنی، بی‌صدا و سریع!
+
+2️⃣ 🧊 طلسم حبس یخی  
+   • دستور استفاده: ریپلای روی کاربر + /mut  
+   • هزینه: ۸۰ سکه  
+   • توضیح: کاربر را برای ۶۰ ثانیه به حالت سکوت می‌بری!
+'''
+    bot.reply_to(message, text)
+
+@bot.message_handler(commands=['del'])
+def delete_message(message):
+    if message.reply_to_message:
+        user_id = message.from_user.id
+        c.execute("SELECT coin FROM users WHERE user_id = ?", (user_id,))
+        data = c.fetchone()
+        if not data or data[0] < 20:
+            bot.reply_to(message, "❌ سکه کافی برای اجرای طلسم بپاک نداری!")
+            return
+        try:
+            bot.delete_message(message.chat.id, message.reply_to_message.message_id)
+            c.execute("UPDATE users SET coin = coin - 20 WHERE user_id = ?", (user_id,))
+            conn.commit()
+            bot.reply_to(message, "🧼 پیام حذف شد و ۲۰ سکه از حساب شما کسر گردید.")
+        except Exception as e:
+            bot.reply_to(message, f"❌ خطا در حذف پیام: {str(e)}")
+    else:
+        bot.reply_to(message, "❌ برای اجرای دستور باید روی پیام ریپلای کنی.")
+
+@bot.message_handler(commands=['mut'])
+def mute_user(message):
+    if message.reply_to_message:
+        user_id = message.from_user.id
+        c.execute("SELECT coin FROM users WHERE user_id = ?", (user_id,))
+        data = c.fetchone()
+        if not data or data[0] < 80:
+            bot.reply_to(message, "❌ سکه کافی برای اجرای طلسم حبس یخی نداری!")
+            return
+        try:
+            bot.restrict_chat_member(
+                chat_id=message.chat.id,
+                user_id=message.reply_to_message.from_user.id,
+                until_date=int(time.time()) + 60,
+                can_send_messages=False
+            )
+            c.execute("UPDATE users SET coin = coin - 80 WHERE user_id = ?", (user_id,))
+            conn.commit()
+            bot.reply_to(message, "🧊 کاربر به مدت ۶۰ ثانیه سکوت شد و ۸۰ سکه از حساب شما کسر گردید.")
+        except Exception as e:
+            bot.reply_to(message, f"❌ خطا در اجرای طلسم حبس یخی: {str(e)}")
+    else:
+        bot.reply_to(message, "❌ برای اجرای دستور باید روی پیام کاربر مورد نظر ریپلای کنی.")
 
 @bot.message_handler(func=lambda m: m.reply_to_message)
 def control_points(message):
@@ -179,78 +239,5 @@ def control_points(message):
         c.execute("UPDATE users SET role = 'ممبر عادی 🧍' WHERE user_id = ?", (uid,))
         conn.commit()
         bot.reply_to(message, "🔻 مقام کاربر حذف شد و به حالت پیش‌فرض برگشت.")
-
-# --- بخش طلسم‌ها و قدرت‌ها ---
-
-@bot.message_handler(commands=['shop'])
-def show_shop(message):
-    add_user(message)
-    user_id = message.from_user.id
-    c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-    data = c.fetchone()
-    if data:
-        text = '''🎁 قدرت‌ها و طلسم‌های فعالت:
-
-1️⃣ 🧼 طلسم بپاک  
-   • دستور استفاده: ریپلای روی پیام + /del  
-   • هزینه: ۲۰ سکه  
-   • توضیح: پیام ریپلای‌شده را پاک می‌کنی، بی‌صدا و سریع!
-
-2️⃣ 🧊 طلسم حبس یخی  
-   • دستور استفاده: ریپلای روی کاربر + /mut  
-   • هزینه: ۸۰ سکه  
-   • توضیح: کاربر را برای ۶۰ ثانیه به حالت سکوت می‌بری!
-'''
-        bot.reply_to(message, text)
-
-@bot.message_handler(commands=['del'])
-def spell_delete(message):
-    user_id = message.from_user.id
-    if not message.reply_to_message:
-        bot.reply_to(message, "⚠️ لطفاً این دستور را روی پیام مورد نظر ریپلای کن!")
-        return
-    
-    c.execute("SELECT coin FROM users WHERE user_id = ?", (user_id,))
-    data = c.fetchone()
-    if not data or data[0] < 20:
-        bot.reply_to(message, "❌ سکه کافی برای استفاده از 🧼طلسم بپاک نداری! حداقل ۲۰ سکه لازم است.")
-        return
-    
-    try:
-        bot.delete_message(message.chat.id, message.reply_to_message.message_id)
-    except Exception as e:
-        bot.reply_to(message, f"⚠️ خطا در پاک کردن پیام: {e}")
-        return
-    
-    c.execute("UPDATE users SET coin = coin - 20 WHERE user_id = ?", (user_id,))
-    conn.commit()
-    
-    bot.reply_to(message, f"🧼✨ پیام با موفقیت پاک شد!\n💰 ۲۰ سکه از حساب شما کسر شد، ثروتت همچنان در حال افزایشه! 💎")
-
-@bot.message_handler(commands=['mut'])
-def spell_mute(message):
-    user_id = message.from_user.id
-    if not message.reply_to_message:
-        bot.reply_to(message, "⚠️ لطفاً این دستور را روی پیام کاربر مورد نظر ریپلای کن!")
-        return
-    
-    target_user_id = message.reply_to_message.from_user.id
-    
-    c.execute("SELECT coin FROM users WHERE user_id = ?", (user_id,))
-    data = c.fetchone()
-    if not data or data[0] < 80:
-        bot.reply_to(message, "❌ سکه کافی برای استفاده از 🧊طلسم حبس یخی نداری! حداقل ۸۰ سکه لازم است.")
-        return
-    
-    try:
-        bot.restrict_chat_member(message.chat.id, target_user_id, until_date=int(time.time()) + 60, can_send_messages=False)
-    except Exception as e:
-        bot.reply_to(message, f"⚠️ خطا در سکوت کردن کاربر: {e}")
-        return
-    
-    c.execute("UPDATE users SET coin = coin - 80 WHERE user_id = ?", (user_id,))
-    conn.commit()
-    
-    bot.reply_to(message, f"🧊❄️ کاربر به مدت ۶۰ ثانیه سکوت شد!\n💰 ۸۰ سکه از حساب شما کسر شد، مدیریت رو به بهترین شکل داری انجام میدی! 👏")
 
 bot.infinity_polling()
