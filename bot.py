@@ -14,19 +14,29 @@ time.sleep(1)
 conn = sqlite3.connect("data.db", check_same_thread=False)
 c = conn.cursor()
 
-# اضافه کردن ستون مقام در صورت نیاز
-c.execute('''
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    name TEXT,
-    username TEXT,
-    coin INTEGER DEFAULT 180,
-    score INTEGER DEFAULT 250,
-    gold_tick INTEGER DEFAULT 0,
-    role TEXT DEFAULT 'ممبر عادی 🧍'
-)
-''')
-conn.commit()
+# اضافه کردن ستون مقام و تولد در صورت نیاز
+# ستون birthdate فقط یکبار اضافه میشه؛ اگر خطا داد یعنی وجود داره و ردش کن
+try:
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY,
+        name TEXT,
+        username TEXT,
+        coin INTEGER DEFAULT 180,
+        score INTEGER DEFAULT 250,
+        gold_tick INTEGER DEFAULT 0,
+        role TEXT DEFAULT 'ممبر عادی 🧍',
+        birthdate TEXT
+    )
+    ''')
+    conn.commit()
+except Exception:
+    # اگر جدول قبلاً بوده و ستون birthdate نبود، ستون رو اضافه کن
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN birthdate TEXT")
+        conn.commit()
+    except:
+        pass  # ستون وجود دارد، رد می‌کنیم
 
 # دیکشنری مقام‌ها با ایموجی
 ranks = {
@@ -83,6 +93,7 @@ def show_profile(message):
         tick = "دارد ✅" if data[5] == 1 or data[4] >= 5000 else "ندارد ❌"
         rank = get_rank(data[4])
         role = data[6] if data[6] else "ممبر عادی 🧍"
+        birthdate = data[7] if len(data) > 7 and data[7] else "ثبت نشده ❌"
 
         text = f'''
 ━━━【 پروفایل شما در گروه 】━━━
@@ -106,7 +117,7 @@ def show_profile(message):
 ♨️ فرقه‌ای که توش عضوی:
 
 🌙 شکلک اختصاصی:
-🎂 تاریخ تولدت:
+🎂 تاریخ تولدت: {birthdate}
 🔮 قدرت‌ها و طلسم‌ها: (نحوه اجرا /shop)
 
 :: در گروه :::::
@@ -115,6 +126,31 @@ def show_profile(message):
 ▪︎💠 مقام شما در گروه: {role}
 '''
         bot.reply_to(message, text)
+
+@bot.message_handler(commands=['old'])
+def set_birthdate(message):
+    user_id = message.from_user.id
+    text = message.text.strip()
+    
+    match = re.match(r'^/old (\d{4}/\d{1,2}/\d{1,2})$', text)
+    if not match:
+        bot.reply_to(message, "❌ فرمت تاریخ تولد اشتباه است. لطفاً به شکل زیر وارد کنید:\n/old 1379/1/11")
+        return
+
+    birthdate = match.group(1)
+
+    c.execute("SELECT coin FROM users WHERE user_id = ?", (user_id,))
+    data = c.fetchone()
+    if not data or data[0] < 40:
+        bot.reply_to(message, "❌ سکه کافی برای ثبت تاریخ تولد نداری!")
+        return
+
+    # ثبت یا به‌روزرسانی تاریخ تولد
+    c.execute("UPDATE users SET birthdate = ?, coin = coin - 40 WHERE user_id = ?", (birthdate, user_id))
+    conn.commit()
+    bot.reply_to(message, f"🎂 تاریخ تولد شما در پروفایلت ثبت شد و ۴۰ سکه از حسابت کسر گردید. 🎉")
+
+# -- بقیه دستورات قبلی بدون تغییر --
 
 @bot.message_handler(commands=['tik'])
 def give_tick(message):
