@@ -24,7 +24,8 @@ name TEXT,
 username TEXT,
 coin INTEGER DEFAULT 180,
 score INTEGER DEFAULT 250,
-gold_tick INTEGER DEFAULT 0
+gold_tick INTEGER DEFAULT 0,
+rank_title TEXT DEFAULT ''
 )
 ''')
 conn.commit()
@@ -67,6 +68,7 @@ def show_profile(message):
     if data:
         tick = "دارد ✅" if data[5] == 1 or data[4] >= 5000 else "ندارد ❌"
         rank = get_rank(data[4])
+        titles = data[6] if len(data) > 6 and data[6] else "ندارد"
 
         text = f'''
 ━━━【 پروفایل شما در گروه 】━━━
@@ -96,7 +98,7 @@ def show_profile(message):
 :: در گروه :::::
 
 ▪︎🏆 درجه شما در گروه: {rank}
-▪︎💠 مقام شما در گروه:
+▪︎💠 مقام شما در گروه: {titles}
 '''
         bot.reply_to(message, text)
 
@@ -153,6 +155,37 @@ def control_points(message):
         c.execute("UPDATE users SET score = score - ? WHERE user_id = ?", (amount, uid))
         conn.commit()
         bot.reply_to(message, f"💔 {amount} امتیاز از <code>{uid}</code> کم شد!\nولی نگران نباش، جبران میشه! 💪", parse_mode="HTML")
+
+# مدیریت افزودن و حذف مقام دستی
+@bot.message_handler(func=lambda m: m.reply_to_message and m.from_user.id == OWNER_ID)
+def manage_rank_title(message):
+    text = message.text.strip()
+    uid = message.reply_to_message.from_user.id
+
+    if re.match(r'^[\+\-]\s*\S+', text):
+        op = text[0]  # + یا -
+        title = text[1:].strip()
+
+        c.execute("SELECT rank_title FROM users WHERE user_id = ?", (uid,))
+        res = c.fetchone()
+        current_titles = res[0].split(' - ') if res and res[0] else []
+
+        if op == '+':
+            if title not in current_titles:
+                current_titles.append(title)
+                c.execute("UPDATE users SET rank_title = ? WHERE user_id = ?", (' - '.join(current_titles), uid))
+                conn.commit()
+                bot.reply_to(message, f"✔ مقام «{title}» به کاربر اضافه شد.")
+            else:
+                bot.reply_to(message, f"⚠ کاربر قبلاً این مقام را دارد.")
+        elif op == '-':
+            if title in current_titles:
+                current_titles.remove(title)
+                c.execute("UPDATE users SET rank_title = ? WHERE user_id = ?", (' - '.join(current_titles), uid))
+                conn.commit()
+                bot.reply_to(message, f"✔ مقام «{title}» از کاربر حذف شد.")
+            else:
+                bot.reply_to(message, f"⚠ کاربر این مقام را ندارد.")
 
 # شروع ربات
 bot.infinity_polling()
