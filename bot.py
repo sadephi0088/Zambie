@@ -19,12 +19,12 @@ c = conn.cursor()
 # ساخت جدول کاربران
 c.execute('''
 CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    name TEXT,
-    username TEXT,
-    coin INTEGER DEFAULT 180,
-    score INTEGER DEFAULT 250,
-    gold_tick INTEGER DEFAULT 0
+user_id INTEGER PRIMARY KEY,
+name TEXT,
+username TEXT,
+coin INTEGER DEFAULT 180,
+score INTEGER DEFAULT 250,
+gold_tick INTEGER DEFAULT 0
 )
 ''')
 conn.commit()
@@ -40,6 +40,23 @@ def add_user(message):
         c.execute("INSERT INTO users (user_id, name, username) VALUES (?, ?, ?)", (user_id, name, username))
         conn.commit()
 
+# تابع درجه‌بندی بر اساس امتیاز
+def get_rank(score):
+    if score < 500:
+        return "تازه‌کار 👶"
+    elif score < 1000:
+        return "حرفه‌ای 🔥"
+    elif score < 2000:
+        return "استاد 🌟"
+    elif score < 4000:
+        return "قهرمان 🏆"
+    elif score < 7000:
+        return "افسانه‌ای 🐉"
+    elif score < 10000:
+        return "بی‌نظیر 💎"
+    else:
+        return "اسطوره 🚀"
+
 # دستور /my برای نمایش پروفایل
 @bot.message_handler(commands=['my'])
 def show_profile(message):
@@ -49,6 +66,8 @@ def show_profile(message):
     data = c.fetchone()
     if data:
         tick = "دارد ✅" if data[5] == 1 or data[4] >= 5000 else "ندارد ❌"
+        rank = get_rank(data[4])
+
         text = f'''
 ━━━【 پروفایل شما در گروه 】━━━
 
@@ -76,7 +95,7 @@ def show_profile(message):
 
 :: در گروه :::::
 
-▪︎🏆 درجه شما در گروه:
+▪︎🏆 درجه شما در گروه: {rank}
 ▪︎💠 مقام شما در گروه:
 '''
         bot.reply_to(message, text)
@@ -100,7 +119,7 @@ def remove_tick(message):
         bot.reply_to(message, "❌ نشان تایید طلایی از این کاربر برداشته شد.")
 
 # مدیریت سکه و امتیاز با ریپلای
-@bot.message_handler(func=lambda m: m.reply_to_message is not None)
+@bot.message_handler(func=lambda m: m.reply_to_message)
 def control_points(message):
     if message.from_user.id != OWNER_ID:
         return
@@ -117,10 +136,7 @@ def control_points(message):
     # کم کردن سکه  
     elif re.match(r'^\- 🪙 \d+$', text):
         amount = int(text.split()[-1])
-        c.execute("SELECT coin FROM users WHERE user_id = ?", (uid,))
-        current_coin = c.fetchone()[0] or 0
-        new_coin = max(0, current_coin - amount)
-        c.execute("UPDATE users SET coin = ? WHERE user_id = ?", (new_coin, uid))
+        c.execute("UPDATE users SET coin = coin - ? WHERE user_id = ?", (amount, uid))
         conn.commit()
         bot.reply_to(message, f"💸 تعداد {amount} سکه از حساب <code>{uid}</code> کم شد!\nمراقب باش که صفر نشی! 🫣", parse_mode="HTML")
 
@@ -134,10 +150,7 @@ def control_points(message):
     # کم کردن امتیاز  
     elif re.match(r'^\- \d+$', text):
         amount = int(text.split()[-1])
-        c.execute("SELECT score FROM users WHERE user_id = ?", (uid,))
-        current_score = c.fetchone()[0] or 0
-        new_score = max(0, current_score - amount)
-        c.execute("UPDATE users SET score = ? WHERE user_id = ?", (new_score, uid))
+        c.execute("UPDATE users SET score = score - ? WHERE user_id = ?", (amount, uid))
         conn.commit()
         bot.reply_to(message, f"💔 {amount} امتیاز از <code>{uid}</code> کم شد!\nولی نگران نباش، جبران میشه! 💪", parse_mode="HTML")
 
