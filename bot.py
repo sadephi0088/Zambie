@@ -11,7 +11,7 @@ bot = telebot.TeleBot(TOKEN)
 bot.remove_webhook()
 time.sleep(1)
 
-اتصال به دیتابیس
+# اتصال به دیتابیس
 
 conn = sqlite3.connect("data.db", check_same_thread=False)
 c = conn.cursor()
