@@ -8,15 +8,13 @@ TOKEN = "7583760165:AAHzGN-N7nyHgFoWt9oamd2tgO7pLkKFWFs"
 OWNER_ID = 7341748124
 bot = telebot.TeleBot(TOKEN)
 
-# حذف وب‌هوک قبلی برای جلوگیری از ارور 409
 bot.remove_webhook()
 time.sleep(1)
 
-# اتصال به دیتابیس
 conn = sqlite3.connect("data.db", check_same_thread=False)
 c = conn.cursor()
 
-# ساخت جدول کاربران
+# جدول کاربران با ستون مقام (role)
 c.execute('''
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -24,12 +22,31 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT,
     coin INTEGER DEFAULT 180,
     score INTEGER DEFAULT 250,
-    gold_tick INTEGER DEFAULT 0
+    gold_tick INTEGER DEFAULT 0,
+    role TEXT DEFAULT 'ممبر عادی 🧍'
 )
 ''')
 conn.commit()
 
-# افزودن کاربر جدید
+# دیکشنری مقام‌ها با ایموجی
+ranks = {
+    "m1": "سوگولی گروه 💋",
+    "m2": "پرنسس گروه 👑",
+    "m3": "ملکه گروه 👸",
+    "m4": "شوالیه گروه 🛡️",
+    "m5": "رهبر گروه 🦁",
+    "m6": "اونر گروه 🌀",
+    "m7": "زامبی الفا گروه 🧟‍♂️",
+    "m8": "نفس گروه 💨",
+    "m9": "بادیگارد گروه 🕶️",
+    "m10": "ممبر عادی 🧍",
+    "m11": "عاشق دلباخته ❤️‍🔥",
+    "m12": "برده گروه 🧎",
+    "m13": "رئیس گروه 🧠",
+    "m14": "کصشرگوی گروه 🐵",
+    "m15": "دختر شاه 👑👧"
+}
+
 def add_user(message):
     user_id = message.from_user.id
     name = message.from_user.first_name
@@ -40,7 +57,6 @@ def add_user(message):
         c.execute("INSERT INTO users (user_id, name, username) VALUES (?, ?, ?)", (user_id, name, username))
         conn.commit()
 
-# تابع درجه‌بندی بر اساس امتیاز
 def get_rank(score):
     if score < 500:
         return "تازه‌کار 👶"
@@ -57,7 +73,6 @@ def get_rank(score):
     else:
         return "اسطوره 🚀"
 
-# دستور /my برای نمایش پروفایل
 @bot.message_handler(commands=['my'])
 def show_profile(message):
     add_user(message)
@@ -67,6 +82,7 @@ def show_profile(message):
     if data:
         tick = "دارد ✅" if data[5] == 1 or data[4] >= 5000 else "ندارد ❌"
         rank = get_rank(data[4])
+        role = data[6] if data[6] else "ممبر عادی 🧍"
 
         text = f'''
 ━━━【 پروفایل شما در گروه 】━━━
@@ -96,15 +112,84 @@ def show_profile(message):
 :: در گروه :::::
 
 ▪︎🏆 درجه شما در گروه: {rank}
-▪︎💠 مقام شما در گروه:
+▪︎💠 مقام شما در گروه: {role}
 '''
         bot.reply_to(message, text)
 
-# دستور /shop برای نمایش لیست قدرت‌ها و طلسم‌ها
+@bot.message_handler(commands=['tik'])
+def give_tick(message):
+    if message.reply_to_message and message.from_user.id == OWNER_ID:
+        uid = message.reply_to_message.from_user.id
+        c.execute("UPDATE users SET gold_tick = 1 WHERE user_id = ?", (uid,))
+        conn.commit()
+        bot.reply_to(message, "⚜️ نشان تایید طلایی برای این کاربر فعال شد ✅")
+
+@bot.message_handler(commands=['dtik'])
+def remove_tick(message):
+    if message.reply_to_message and message.from_user.id == OWNER_ID:
+        uid = message.reply_to_message.from_user.id
+        c.execute("UPDATE users SET gold_tick = 0 WHERE user_id = ?", (uid,))
+        conn.commit()
+        bot.reply_to(message, "❌ نشان تایید طلایی از این کاربر برداشته شد.")
+
+@bot.message_handler(func=lambda m: m.reply_to_message)
+def control_points(message):
+    if message.from_user.id != OWNER_ID:
+        return
+
+    uid = message.reply_to_message.from_user.id
+    text = message.text.strip()
+
+    # سکه
+    if re.match(r'^\+ 🪙 \d+$', text):
+        amount = int(text.split()[-1])
+        c.execute("UPDATE users SET coin = coin + ? WHERE user_id = ?", (amount, uid))
+        conn.commit()
+        bot.reply_to(message, f"💰 {amount} سکه به حساب {uid} اضافه شد!", parse_mode="HTML")
+
+    elif re.match(r'^\- 🪙 \d+$', text):
+        amount = int(text.split()[-1])
+        c.execute("UPDATE users SET coin = coin - ? WHERE user_id = ?", (amount, uid))
+        conn.commit()
+        bot.reply_to(message, f"💸 {amount} سکه از حساب {uid} کم شد!", parse_mode="HTML")
+
+    # امتیاز
+    elif re.match(r'^\+ \d+$', text):
+        amount = int(text.split()[-1])
+        c.execute("UPDATE users SET score = score + ? WHERE user_id = ?", (amount, uid))
+        conn.commit()
+        bot.reply_to(message, f"🎉 {amount} امتیاز اضافه شد!", parse_mode="HTML")
+
+    elif re.match(r'^\- \d+$', text):
+        amount = int(text.split()[-1])
+        c.execute("UPDATE users SET score = score - ? WHERE user_id = ?", (amount, uid))
+        conn.commit()
+        bot.reply_to(message, f"💔 {amount} امتیاز کم شد!", parse_mode="HTML")
+
+    # مقام اضافه کردن
+    elif re.match(r'^\+m\d{1,2}$', text):
+        key = text[1:]
+        if key in ranks:
+            c.execute("UPDATE users SET role = ? WHERE user_id = ?", (ranks[key], uid))
+            conn.commit()
+            bot.reply_to(message, f"👑 مقام جدید: <b>{ranks[key]}</b> برای کاربر ثبت شد!", parse_mode="HTML")
+
+    # مقام حذف کردن
+    elif re.match(r'^\-m\d{1,2}$', text):
+        c.execute("UPDATE users SET role = 'ممبر عادی 🧍' WHERE user_id = ?", (uid,))
+        conn.commit()
+        bot.reply_to(message, "🔻 مقام کاربر حذف شد و به حالت پیش‌فرض برگشت.")
+
+# --- بخش طلسم‌ها و قدرت‌ها ---
+
 @bot.message_handler(commands=['shop'])
 def show_shop(message):
-    text = '''
-🎁 قدرت‌ها و طلسم‌های فعالت:
+    add_user(message)
+    user_id = message.from_user.id
+    c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    data = c.fetchone()
+    if data:
+        text = '''🎁 قدرت‌ها و طلسم‌های فعالت:
 
 1️⃣ 🧼 طلسم بپاک  
    • دستور استفاده: ریپلای روی پیام + /del  
@@ -116,61 +201,56 @@ def show_shop(message):
    • هزینه: ۸۰ سکه  
    • توضیح: کاربر را برای ۶۰ ثانیه به حالت سکوت می‌بری!
 '''
-    bot.reply_to(message, text)
+        bot.reply_to(message, text)
 
-# دستور /tik برای فعال‌سازی تیک طلایی
-@bot.message_handler(commands=['tik'])
-def give_tick(message):
-    if message.reply_to_message and message.from_user.id == OWNER_ID:
-        uid = message.reply_to_message.from_user.id
-        c.execute("UPDATE users SET gold_tick = 1 WHERE user_id = ?", (uid,))
-        conn.commit()
-        bot.reply_to(message, "⚜️ نشان تایید طلایی برای این کاربر فعال شد ✅")
-
-# دستور /dtik برای حذف تیک طلایی
-@bot.message_handler(commands=['dtik'])
-def remove_tick(message):
-    if message.reply_to_message and message.from_user.id == OWNER_ID:
-        uid = message.reply_to_message.from_user.id
-        c.execute("UPDATE users SET gold_tick = 0 WHERE user_id = ?", (uid,))
-        conn.commit()
-        bot.reply_to(message, "❌ نشان تایید طلایی از این کاربر برداشته شد.")
-
-# مدیریت سکه و امتیاز با ریپلای
-@bot.message_handler(func=lambda m: m.reply_to_message)
-def control_points(message):
-    if message.from_user.id != OWNER_ID:
+@bot.message_handler(commands=['del'])
+def spell_delete(message):
+    user_id = message.from_user.id
+    if not message.reply_to_message:
+        bot.reply_to(message, "⚠️ لطفاً این دستور را روی پیام مورد نظر ریپلای کن!")
         return
-    uid = message.reply_to_message.from_user.id
-    text = message.text.strip()
+    
+    c.execute("SELECT coin FROM users WHERE user_id = ?", (user_id,))
+    data = c.fetchone()
+    if not data or data[0] < 20:
+        bot.reply_to(message, "❌ سکه کافی برای استفاده از 🧼طلسم بپاک نداری! حداقل ۲۰ سکه لازم است.")
+        return
+    
+    try:
+        bot.delete_message(message.chat.id, message.reply_to_message.message_id)
+    except Exception as e:
+        bot.reply_to(message, f"⚠️ خطا در پاک کردن پیام: {e}")
+        return
+    
+    c.execute("UPDATE users SET coin = coin - 20 WHERE user_id = ?", (user_id,))
+    conn.commit()
+    
+    bot.reply_to(message, f"🧼✨ پیام با موفقیت پاک شد!\n💰 ۲۰ سکه از حساب شما کسر شد، ثروتت همچنان در حال افزایشه! 💎")
 
-    # افزودن سکه    
-    if re.match(r'^\+ 🪙 \d+$', text):
-        amount = int(text.split()[-1])
-        c.execute("UPDATE users SET coin = coin + ? WHERE user_id = ?", (amount, uid))
-        conn.commit()
-        bot.reply_to(message, f"💰 تعداد {amount} سکه به حساب <code>{uid}</code> اضافه شد!\n✨ ثروتت داره بیشتر میشه 😎", parse_mode="HTML")
+@bot.message_handler(commands=['mut'])
+def spell_mute(message):
+    user_id = message.from_user.id
+    if not message.reply_to_message:
+        bot.reply_to(message, "⚠️ لطفاً این دستور را روی پیام کاربر مورد نظر ریپلای کن!")
+        return
+    
+    target_user_id = message.reply_to_message.from_user.id
+    
+    c.execute("SELECT coin FROM users WHERE user_id = ?", (user_id,))
+    data = c.fetchone()
+    if not data or data[0] < 80:
+        bot.reply_to(message, "❌ سکه کافی برای استفاده از 🧊طلسم حبس یخی نداری! حداقل ۸۰ سکه لازم است.")
+        return
+    
+    try:
+        bot.restrict_chat_member(message.chat.id, target_user_id, until_date=int(time.time()) + 60, can_send_messages=False)
+    except Exception as e:
+        bot.reply_to(message, f"⚠️ خطا در سکوت کردن کاربر: {e}")
+        return
+    
+    c.execute("UPDATE users SET coin = coin - 80 WHERE user_id = ?", (user_id,))
+    conn.commit()
+    
+    bot.reply_to(message, f"🧊❄️ کاربر به مدت ۶۰ ثانیه سکوت شد!\n💰 ۸۰ سکه از حساب شما کسر شد، مدیریت رو به بهترین شکل داری انجام میدی! 👏")
 
-    # کم کردن سکه    
-    elif re.match(r'^\- 🪙 \d+$', text):
-        amount = int(text.split()[-1])
-        c.execute("UPDATE users SET coin = coin - ? WHERE user_id = ?", (amount, uid))
-        conn.commit()
-        bot.reply_to(message, f"💸 تعداد {amount} سکه از حساب <code>{uid}</code> کم شد!\nمراقب باش که صفر نشی! 🫣", parse_mode="HTML")
-
-    # افزودن امتیاز    
-    elif re.match(r'^\+ \d+$', text):
-        amount = int(text.split()[-1])
-        c.execute("UPDATE users SET score = score + ? WHERE user_id = ?", (amount, uid))
-        conn.commit()
-        bot.reply_to(message, f"🎉 {amount} امتیاز به <code>{uid}</code> اضافه شد!\nدرخششت مبارک! 🌟", parse_mode="HTML")
-
-    # کم کردن امتیاز    
-    elif re.match(r'^\- \d+$', text):
-        amount = int(text.split()[-1])
-        c.execute("UPDATE users SET score = score - ? WHERE user_id = ?", (amount, uid))
-        conn.commit()
-        bot.reply_to(message, f"💔 {amount} امتیاز از <code>{uid}</code> کم شد!\nولی نگران نباش، جبران میشه! 💪", parse_mode="HTML")
-
-# شروع ربات
 bot.infinity_polling()
