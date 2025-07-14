@@ -19,16 +19,30 @@ c = conn.cursor()
 # ساخت جدول کاربران
 c.execute('''
 CREATE TABLE IF NOT EXISTS users (
-user_id INTEGER PRIMARY KEY,
-name TEXT,
-username TEXT,
-coin INTEGER DEFAULT 180,
-score INTEGER DEFAULT 250,
-gold_tick INTEGER DEFAULT 0,
-rank_title TEXT DEFAULT ''
+    user_id INTEGER PRIMARY KEY,
+    name TEXT,
+    username TEXT,
+    coin INTEGER DEFAULT 180,
+    score INTEGER DEFAULT 250,
+    gold_tick INTEGER DEFAULT 0,
+    rank_code TEXT DEFAULT 'm10'
 )
 ''')
 conn.commit()
+
+# لیست مقام‌ها با کد
+ranks = {
+    "m1": "سوگولی گروه 💖",
+    "m2": "پرنسس گروه 👑",
+    "m3": "ملکه گروه 👸",
+    "m4": "شوالیه گروه 🛡️",
+    "m5": "رهبر گروه 🔥",
+    "m6": "اونر گروه ⭐",
+    "m7": "زامبی آلفا گروه 🧟‍♂️",
+    "m8": "نفس گروه 💨",
+    "m9": "بادیگارد گروه 🛡️",
+    "m10": "ممبر عادی 👤"
+}
 
 # افزودن کاربر جدید
 def add_user(message):
@@ -68,7 +82,8 @@ def show_profile(message):
     if data:
         tick = "دارد ✅" if data[5] == 1 or data[4] >= 5000 else "ندارد ❌"
         rank = get_rank(data[4])
-        titles = data[6] if len(data) > 6 and data[6] else "ندارد"
+        user_rank_code = data[6] if len(data) > 6 else "m10"
+        user_rank = ranks.get(user_rank_code, "ممبر عادی 👤")
 
         text = f'''
 ━━━【 پروفایل شما در گروه 】━━━
@@ -98,7 +113,7 @@ def show_profile(message):
 :: در گروه :::::
 
 ▪︎🏆 درجه شما در گروه: {rank}
-▪︎💠 مقام شما در گروه: {titles}
+▪︎💠 مقام شما در گروه: {user_rank}
 '''
         bot.reply_to(message, text)
 
@@ -156,34 +171,36 @@ def control_points(message):
         conn.commit()
         bot.reply_to(message, f"💔 {amount} امتیاز از <code>{uid}</code> کم شد!\nولی نگران نباش، جبران میشه! 💪", parse_mode="HTML")
 
-# مدیریت افزودن و حذف مقام دستی
+# مدیریت مقام با کدهای m1 تا m10 توسط مالک
 @bot.message_handler(func=lambda m: m.reply_to_message and m.from_user.id == OWNER_ID)
-def manage_rank_title(message):
+def manage_rank_code(message):
     text = message.text.strip()
     uid = message.reply_to_message.from_user.id
 
-    if re.match(r'^[\+\-]\s*\S+', text):
+    if re.match(r'^[\+\-]m\d+$', text):
         op = text[0]  # + یا -
-        title = text[1:].strip()
+        code = text[1:]  # مثلاً m1، m2 و ...
 
-        c.execute("SELECT rank_title FROM users WHERE user_id = ?", (uid,))
+        if code not in ranks:
+            bot.reply_to(message, "⚠ کد مقام معتبر نیست.")
+            return
+
+        c.execute("SELECT rank_code FROM users WHERE user_id = ?", (uid,))
         res = c.fetchone()
-        current_titles = res[0].split(' - ') if res and res[0] else []
+        current_code = res[0] if res else "m10"
 
         if op == '+':
-            if title not in current_titles:
-                current_titles.append(title)
-                c.execute("UPDATE users SET rank_title = ? WHERE user_id = ?", (' - '.join(current_titles), uid))
-                conn.commit()
-                bot.reply_to(message, f"✔ مقام «{title}» به کاربر اضافه شد.")
+            if current_code == code:
+                bot.reply_to(message, f"⚠ کاربر قبلاً مقام «{ranks[code]}» را دارد.")
             else:
-                bot.reply_to(message, f"⚠ کاربر قبلاً این مقام را دارد.")
-        elif op == '-':
-            if title in current_titles:
-                current_titles.remove(title)
-                c.execute("UPDATE users SET rank_title = ? WHERE user_id = ?", (' - '.join(current_titles), uid))
+                c.execute("UPDATE users SET rank_code = ? WHERE user_id = ?", (code, uid))
                 conn.commit()
-                bot.reply_to(message, f"✔ مقام «{title}» از کاربر حذف شد.")
+                bot.reply_to(message, f"✔ مقام «{ranks[code]}» به کاربر داده شد.")
+        elif op == '-':
+            if current_code == code:
+                c.execute("UPDATE users SET rank_code = 'm10' WHERE user_id = ?", (uid,))
+                conn.commit()
+                bot.reply_to(message, f"✔ مقام «{ranks[code]}» از کاربر گرفته شد و به «ممبر عادی» برگشت.")
             else:
                 bot.reply_to(message, f"⚠ کاربر این مقام را ندارد.")
 
