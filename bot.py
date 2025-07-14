@@ -8,7 +8,7 @@ TOKEN = "7583760165:AAHzGN-N7nyHgFoWt9oamd2tgO7pLkKFWFs"
 OWNER_ID = 7341748124
 bot = telebot.TeleBot(TOKEN)
 
-# حذف webhook قبلی
+# حذف وب‌هوک قبلی برای جلوگیری از ارور 409
 bot.remove_webhook()
 time.sleep(1)
 
@@ -16,7 +16,7 @@ time.sleep(1)
 conn = sqlite3.connect("data.db", check_same_thread=False)
 c = conn.cursor()
 
-# ایجاد جدول کاربران با ستون‌های جدید برای عشق (eshgh_name و eshgh_username)
+# ساخت جدول کاربران
 c.execute('''
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -25,8 +25,10 @@ CREATE TABLE IF NOT EXISTS users (
     coin INTEGER DEFAULT 180,
     score INTEGER DEFAULT 250,
     gold_tick INTEGER DEFAULT 0,
+    eshgh_user_id INTEGER DEFAULT NULL,
+    eshgh_username TEXT DEFAULT NULL,
     eshgh_name TEXT DEFAULT NULL,
-    eshgh_username TEXT DEFAULT NULL
+    mehrieh INTEGER DEFAULT NULL
 )
 ''')
 conn.commit()
@@ -42,7 +44,7 @@ def add_user(message):
         c.execute("INSERT INTO users (user_id, name, username) VALUES (?, ?, ?)", (user_id, name, username))
         conn.commit()
 
-# دستور /my برای نمایش پروفایل به همراه اطلاعات عشق
+# دستور /my برای نمایش پروفایل
 @bot.message_handler(commands=['my'])
 def show_profile(message):
     add_user(message)
@@ -51,13 +53,7 @@ def show_profile(message):
     data = c.fetchone()
     if data:
         tick = "دارد ✅" if data[5] == 1 or data[4] >= 5000 else "ندارد ❌"
-
-        # نمایش عشق به همراه نام و یوزرنیم یا خالی اگر ندارد
-        if data[6] and data[7]:
-            eshgh_info = f"{data[6]} (@{data[7]})"
-        else:
-            eshgh_info = ""
-
+        eshgh = f"@{data[7]}" if data[7] else "ندارد"
         text = f'''
 ━━━【 پروفایل شما در گروه 】━━━
 
@@ -74,7 +70,7 @@ def show_profile(message):
 ⚜️ نشان تایید طلایی: {tick}
 ---------------------------
 •مشخصات خانواده شما•
-😍 اسم همسر یا عشق‌ِت: {eshgh_info}
+😍 اسم همسر یا عشق‌ِت: {eshgh}
 ♥️ اسم فرزندتون: 
 🐣 حیوان خانگی شما: 
 ♨️ فرقه‌ای که توش عضوی: 
@@ -108,8 +104,8 @@ def remove_tick(message):
         conn.commit()
         bot.reply_to(message, "❌ نشان تایید طلایی از این کاربر برداشته شد.")
 
-# مدیریت سکه و امتیاز با ریپلای
-@bot.message_handler(func=lambda m: m.reply_to_message)
+# مدیریت سکه و امتیاز با ریپلای (فقط برای مالک)
+@bot.message_handler(func=lambda m: m.reply_to_message is not None)
 def control_points(message):
     if message.from_user.id != OWNER_ID:
         return
@@ -144,172 +140,223 @@ def control_points(message):
         conn.commit()
         bot.reply_to(message, f"💔 {amount} امتیاز از <code>{uid}</code> کم شد!\nولی نگران نباش، جبران میشه! 💪", parse_mode="HTML")
 
-# دستور /love برای ثبت درخواست عشق
+# =============== مدیریت عشق =================
+
+# حافظه موقت برای درخواست‌های عشق {target_user_id: proposer_user_id}
+pending_loves = {}
+
+# متغیر برای ذخیره مهریه موقت
+pending_mehrieh = {}
+
+# دستور /love
 @bot.message_handler(commands=['love'])
 def love_request(message):
     if not message.reply_to_message:
-        bot.reply_to(message, "❌ لطفا روی پیام فردی که دوست داری ریپلای کن و بعد دستور /love را بزن.")
+        bot.reply_to(message, "❌ لطفاً روی پیام کسی که دوستش داری ریپلای کن و بعد دستور /love رو بزن.")
         return
+
     proposer = message.from_user
     target = message.reply_to_message.from_user
 
-    # بررسی اینکه پیشنهاددهنده خودش نیست
     if proposer.id == target.id:
-        bot.reply_to(message, "❌ نمی‌تونی به خودت عشق بدی عزیزم!")
+        bot.reply_to(message, "😅 به خودت که نمی‌تونی عشق بدی عزیزم!")
         return
 
-    # چک کردن وجود هر دو در دیتابیس
-    add_user(message)
-    add_user(message.reply_to_message)
+    # ذخیره درخواست در حافظه موقت
+    pending_loves[target.id] = proposer.id
 
-    # ارسال پیام عاشقانه با دکمه تایید به هدف
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("❤️ قبول می‌کنم", callback_data=f"accept_love:{proposer.id}:{target.id}"))
+    proposer_name = f"@{proposer.username}" if proposer.username else proposer.first_name
+    target_name = f"@{target.username}" if target.username else target.first_name
+
     bot.send_message(message.chat.id,
-                     f"💌 اووه! @{proposer.username} دلش برای @{target.username} تنگ شده و عاشقش شده! آیا تو هم موافقی؟ 💖",
-                     reply_markup=markup)
+        f"💘 وای وای وای! {proposer_name} به طور رسمی اعلام کرده که دلش پیش {target_name} گیره! 😳\n"
+        f"{target_name} عزیز… می‌خوای این عشقو واقعی کنیم؟ فقط کافیه همین‌جا بنویسی /accept 💖"
+    )
 
-# هندلر دکمه قبول عشق
-@bot.callback_query_handler(func=lambda c: c.data.startswith("accept_love"))
-def handle_accept_love(call):
-    data = call.data.split(":")
-    if len(data) != 3:
-        return
-    proposer_id = int(data[1])
-    target_id = int(data[2])
+# دستور /accept
+@bot.message_handler(commands=['accept'])
+def accept_love(message):
+    accepter = message.from_user
+    accepter_id = accepter.id
 
-    # فقط خود target اجازه داره قبول کنه
-    if call.from_user.id != target_id:
-        bot.answer_callback_query(call.id, "❌ فقط خودت می‌تونی این درخواست رو قبول کنی.")
+    if accepter_id not in pending_loves:
+        bot.reply_to(message, "❌ هیچ درخواستی برای شما ثبت نشده یا منقضی شده.")
         return
 
-    # بررسی سکه‌ها و کسر ۵۰۰ سکه از proposer
-    c.execute("SELECT coin FROM users WHERE user_id = ?", (proposer_id,))
-    coin = c.fetchone()
-    if not coin or coin[0] < 500:
-        bot.answer_callback_query(call.id, "❌ عزیزم، ۵۰۰ سکه برای ثبت عشق لازم داری.")
-        return
+    proposer_id = pending_loves[accepter_id]
 
-    c.execute("UPDATE users SET coin = coin - 500 WHERE user_id = ?", (proposer_id,))
-    # ثبت عشق (نام و یوزرنیم پیشنهاددهنده و قبول‌کننده)
-    c.execute("SELECT username, name FROM users WHERE user_id = ?", (proposer_id,))
+    c.execute("SELECT coin, username, name FROM users WHERE user_id = ?", (proposer_id,))
     proposer_data = c.fetchone()
-    c.execute("SELECT username, name FROM users WHERE user_id = ?", (target_id,))
-    target_data = c.fetchone()
+    c.execute("SELECT username, name FROM users WHERE user_id = ?", (accepter_id,))
+    accepter_data = c.fetchone()
 
-    # ثبت عشق در هر دو حساب
-    c.execute("UPDATE users SET eshgh_username = ?, eshgh_name = ? WHERE user_id = ?", (target_data[0], target_data[1], proposer_id))
-    c.execute("UPDATE users SET eshgh_username = ?, eshgh_name = ? WHERE user_id = ?", (proposer_data[0], proposer_data[1], target_id))
+    if not proposer_data or not accepter_data:
+        bot.reply_to(message, "❌ مشکلی در اطلاعات کاربران پیش آمده.")
+        return
+
+    if proposer_data[0] < 500:
+        bot.reply_to(message, "❌ کاربر پیشنهاددهنده سکه کافی برای ثبت عشق نداره!")
+        return
+
+    # ذخیره موقت مهریه
+    pending_mehrieh[accepter_id] = {'proposer_id': proposer_id, 'chat_id': message.chat.id}
+
+    bot.send_message(message.chat.id,
+        f"🎉 واااای چه لحظه‌ای! عشق بین @{proposer_data[1]} و @{accepter_data[0]} با موفقیت ثبت شد! 💞\n"
+        f"💸 ۵۰۰ سکه بابت این عشق سوزان از جیب پیشنهاددهنده کم شد...\n"
+        f"حالا نوبت توئه عشقم! عدد مهریه‌ات رو همینجا برامون بفرست تا ثبتش کنم 🌹✨"
+    )
+
+    # کم کردن سکه پیشنهاددهنده
+    c.execute("UPDATE users SET coin = coin - 500 WHERE user_id = ?", (proposer_id,))
     conn.commit()
 
-    bot.answer_callback_query(call.id, "💖 عشق شما ثبت شد، حالا مهریه‌ات رو مشخص کن...")
+    # حذف درخواست از pending_loves چون در مرحله مهریه هستیم
+    del pending_loves[accepter_id]
 
-    # پیام درخواست مهریه
-    bot.send_message(call.message.chat.id,
-                     f"🌹 عزیزم @{target_data[0]}، حالا مهریه‌ات رو مشخص کن! لطفا یک عدد بفرست تا ثبت کنم...")
-
-# دیکشنری برای نگهداری موقت درخواست مهریه {user_id: proposer_id}
-pending_mahrieh = {}
-
-@bot.message_handler(func=lambda m: m.text and m.text.isdigit())
-def handle_mahrieh(message):
-    user_id = message.from_user.id
-    if user_id not in pending_mahrieh:
+# دریافت مهریه (عدد بین 100 تا 10000)
+@bot.message_handler(func=lambda m: m.from_user.id in pending_mehrieh)
+def receive_mehrieh(message):
+    try:
+        amount = int(message.text.strip())
+    except:
+        bot.reply_to(message, "❌ لطفاً فقط یک عدد صحیح وارد کن بین ۱۰۰ تا ۱۰,۰۰۰ سکه.")
         return
-    mahrieh = int(message.text)
-    proposer_id = pending_mahrieh[user_id]
 
-    # ذخیره مهریه (در اینجا فقط چاپ می‌کنیم چون هنوز دیتابیس مهریه رو نداریم)
-    # در صورت نیاز باید جدول جدید ساخته شود و ذخیره کنیم
-    bot.reply_to(message, f"✅ مهریه {mahrieh} سکه برای عشق‌تان ثبت شد!")
+    if amount < 100 or amount > 10000:
+        bot.reply_to(message, "❌ مهریه باید عددی بین ۱۰۰ تا ۱۰,۰۰۰ سکه باشه عزیزم! لطفاً دوباره انتخاب کن 🌹")
+        return
 
-    # حذف از pending
-    del pending_mahrieh[user_id]
+    accepter_id = message.from_user.id
+    proposer_id = pending_mehrieh[accepter_id]['proposer_id']
+    chat_id = pending_mehrieh[accepter_id]['chat_id']
 
-# دستور /dlove برای درخواست جدایی
+    pending_mehrieh[accepter_id]['amount'] = amount
+
+    bot.send_message(chat_id,
+        f"🔒 @{get_username(proposer_id)} عزیز! مهریه‌ای که عشقت برای این رابطه انتخاب کرده {amount} سکه‌ست 💰\n"
+        f"آیا این عدد رو به عنوان مهر عشق‌تون قبول می‌کنی؟\n"
+        f"برای تایید نهایی فقط کافیه همینجا بنویسی: /confirm ❤️"
+    )
+
+# دستور /confirm برای تایید نهایی مهریه توسط پیشنهاددهنده
+@bot.message_handler(commands=['confirm'])
+def confirm_mehrieh(message):
+    proposer_id = message.from_user.id
+
+    # جستجو در pending_mehrieh برای پیدا کردن قبول کننده مربوط به این پیشنهاددهنده
+    accepter_id = None
+    for aid, info in pending_mehrieh.items():
+        if info['proposer_id'] == proposer_id and 'amount' in info:
+            accepter_id = aid
+            break
+
+    if not accepter_id:
+        bot.reply_to(message, "❌ درخواستی برای تایید مهریه ثبت نشده یا منقضی شده.")
+        return
+
+    amount = pending_mehrieh[accepter_id]['amount']
+    chat_id = pending_mehrieh[accepter_id]['chat_id']
+
+    # ثبت عشق نهایی در دیتابیس
+    c.execute("UPDATE users SET eshgh_user_id = ?, eshgh_username = (SELECT username FROM users WHERE user_id = ?), eshgh_name = (SELECT name FROM users WHERE user_id = ?) WHERE user_id = ?", (accepter_id, accepter_id, accepter_id, proposer_id))
+    c.execute("UPDATE users SET eshgh_user_id = ?, eshgh_username = (SELECT username FROM users WHERE user_id = ?), eshgh_name = (SELECT name FROM users WHERE user_id = ?), mehrieh = ? WHERE user_id = ?", (proposer_id, proposer_id, proposer_id, amount, accepter_id))
+    conn.commit()
+
+    bot.send_message(chat_id,
+        f"💞 عشق بین @{get_username(proposer_id)} و @{get_username(accepter_id)} ثبت و نهایی شد! 🌹\n"
+        f"مهریه {amount} سکه با توافق کامل تایید شد! 💍"
+    )
+
+    # حذف از pending_mehrieh
+    del pending_mehrieh[accepter_id]
+
+# دستور /dlove برای پایان دادن به عشق
 @bot.message_handler(commands=['dlove'])
-def request_divorce(message):
-    user_id = message.from_user.id
-    # پیدا کردن هدف از ریپلای یا پارامتر بعد دستور
+def delete_love(message):
+    # چک می‌کنیم که یا ریپلای شده یا آیدی داده شده
     if message.reply_to_message:
         target_user = message.reply_to_message.from_user
     else:
+        # اگر آیدی یا یوزرنیم رو نوشتیم
         args = message.text.split()
         if len(args) < 2:
-            bot.reply_to(message, "❌ لطفا ریپلای کنید یا آیدی فرد را بعد دستور وارد کنید.")
+            bot.reply_to(message, "❌ لطفا یا روی پیام فرد مورد نظر ریپلای کن یا آیدی/یوزرنیمش رو بعد دستور بنویس.")
             return
-        username = args[1]
-        if username.startswith('@'):
-            username = username[1:]
-        c.execute("SELECT user_id FROM users WHERE username = ?", (username,))
-        row = c.fetchone()
-        if not row:
-            bot.reply_to(message, "❌ کاربر پیدا نشد.")
-            return
-        target_user_id = row[0]
-        # برای سادگی یک شیء user مجازی می‌سازیم
-        target_user = types.User(id=target_user_id, is_bot=False, first_name="", username=username, last_name=None)
+        user_mention = args[1]
+        if user_mention.startswith("@"):
+            username = user_mention[1:]
+            c.execute("SELECT user_id FROM users WHERE username = ?", (username,))
+            res = c.fetchone()
+            if not res:
+                bot.reply_to(message, "❌ کاربر مورد نظر پیدا نشد.")
+                return
+            target_user = types.User(id=res[0], first_name=username, is_bot=False)  # ساخت کاربر موقت
+        else:
+            try:
+                user_id = int(user_mention)
+                c.execute("SELECT user_id, username FROM users WHERE user_id = ?", (user_id,))
+                res = c.fetchone()
+                if not res:
+                    bot.reply_to(message, "❌ کاربر مورد نظر پیدا نشد.")
+                    return
+                target_user = types.User(id=res[0], first_name=res[1], is_bot=False)
+            except:
+                bot.reply_to(message, "❌ آیدی نامعتبر است.")
+                return
 
-    # چک کنیم این دو نفر عشقی با هم دارن یا نه
-    c.execute("SELECT eshgh_username FROM users WHERE user_id = ?", (user_id,))
-    user_eshgh_username = c.fetchone()
-    c.execute("SELECT username FROM users WHERE user_id = ?", (target_user.id,))
-    target_username = c.fetchone()
-    if not user_eshgh_username or not target_username or user_eshgh_username[0] != target_username[0]:
-        bot.reply_to(message, "❌ شما و این شخص عشقی با هم ندارید که بخواهید جدا بشید.")
+    user1_id = message.from_user.id
+    user2_id = target_user.id
+
+    # بررسی اینکه عشق بین دو نفر ثبت شده یا نه
+    c.execute("SELECT eshgh_user_id, mehrieh FROM users WHERE user_id = ?", (user1_id,))
+    data1 = c.fetchone()
+    c.execute("SELECT eshgh_user_id, mehrieh FROM users WHERE user_id = ?", (user2_id,))
+    data2 = c.fetchone()
+
+    if not data1 or not data2:
+        bot.reply_to(message, "❌ اطلاعات کافی برای این کار موجود نیست.")
         return
 
-    # ساخت پیام تایید جدایی با دکمه‌ها
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton("✅ بله، موافقم", callback_data=f"confirm_divorce:{user_id}:{target_user.id}"),
-        types.InlineKeyboardButton("❌ نخیر، ادامه میدم", callback_data="cancel_divorce")
-    )
-    bot.send_message(message.chat.id,
-                     f"💔 آیا واقعاً می‌خواهید از عشق خود با @{target_user.username} جدا شوید؟",
-                     reply_markup=markup)
-
-# هندلر callback دکمه‌ها برای جدایی
-@bot.callback_query_handler(func=lambda call: call.data.startswith("confirm_divorce") or call.data == "cancel_divorce")
-def handle_divorce_callback(call):
-    if call.data == "cancel_divorce":
-        bot.answer_callback_query(call.id, "ادامه رابطه ثبت شد ❤️")
-        bot.delete_message(call.message.chat.id, call.message.message_id)
+    if (data1[0] != user2_id) and (data2[0] != user1_id):
+        bot.reply_to(message, "❌ عشق ثبت شده‌ای بین شما دو نفر وجود ندارد.")
         return
 
-    parts = call.data.split(":")
-    if len(parts) != 3:
-        return
+    # مبلغ مهریه
+    mehrieh_amount = data1[1] if data1[0] == user2_id else data2[1]
 
-    user1_id = int(parts[1])
-    user2_id = int(parts[2])
+    if not mehrieh_amount:
+        mehrieh_amount = 0
 
-    # فقط کسانی که درخواست دادن اجازه دارن تایید کنن
-    if call.from_user.id != user1_id and call.from_user.id != user2_id:
-        bot.answer_callback_query(call.id, "❌ شما اجازه انجام این کار را ندارید.")
-        return
+    # انتقال مهریه از پیشنهاددهنده به قبول کننده
+    proposer_id = user1_id if data1[0] == user2_id else user2_id
+    accepter_id = user2_id if proposer_id == user1_id else user1_id
 
-    # حذف عشق از دیتابیس
-    c.execute("UPDATE users SET eshgh_username = NULL, eshgh_name = NULL WHERE user_id = ?", (user1_id,))
-    c.execute("UPDATE users SET eshgh_username = NULL, eshgh_name = NULL WHERE user_id = ?", (user2_id,))
+    c.execute("UPDATE users SET coin = coin - ? WHERE user_id = ?", (mehrieh_amount, proposer_id))
+    c.execute("UPDATE users SET coin = coin + ? WHERE user_id = ?", (mehrieh_amount, accepter_id))
 
-    # کسر 500 سکه از پیشنهاددهنده (user1_id)
-    c.execute("UPDATE users SET coin = coin - 500 WHERE user_id = ?", (user1_id,))
-    # اضافه کردن 500 سکه به قبول‌کننده (user2_id)
-    c.execute("UPDATE users SET coin = coin + 500 WHERE user_id = ?", (user2_id,))
+    # پاک کردن عشق از دیتابیس
+    c.execute("UPDATE users SET eshgh_user_id = NULL, eshgh_username = NULL, eshgh_name = NULL, mehrieh = NULL WHERE user_id IN (?, ?)", (user1_id, user2_id))
     conn.commit()
 
-    # حذف پیام تایید
-    bot.delete_message(call.message.chat.id, call.message.message_id)
+    # ارسال پیام در گروه
+    proposer_username = get_username(proposer_id)
+    accepter_username = get_username(accepter_id)
 
-    # ارسال پیام رمانتیک جدایی
-    c.execute("SELECT username FROM users WHERE user_id = ?", (user1_id,))
-    user1_username = c.fetchone()[0] or "ندارد"
-    c.execute("SELECT username FROM users WHERE user_id = ?", (user2_id,))
-    user2_username = c.fetchone()[0] or "ندارد"
-    bot.send_message(call.message.chat.id,
-                     f"💔 عشق بین @{user1_username} و @{user2_username} به پایان رسید...\n"
-                     f"💸 ۵۰۰ سکه از حساب پیشنهاددهنده کسر و به قبول‌کننده واریز شد.")
-    bot.answer_callback_query(call.id, "💔 جدایی با موفقیت ثبت شد.")
+    bot.send_message(message.chat.id,
+        f"💔 عشق بین @{proposer_username} و @{accepter_username} به پایان رسید...  \n"
+        f"🪙 مهریه {mehrieh_amount} سکه از حساب پیشنهاددهنده کم و به عشق سابقش واریز شد.  \n"
+        f"گاهی رفتن، تنها راهِ دوست داشتنه... 💫"
+    )
 
+# تابع کمکی برای گرفتن یوزرنیم از روی آیدی
+def get_username(user_id):
+    c.execute("SELECT username FROM users WHERE user_id = ?", (user_id,))
+    res = c.fetchone()
+    if res and res[0] and res[0] != "ندارد":
+        return res[0]
+    else:
+        return str(user_id)
+
+# شروع ربات
 bot.infinity_polling()
