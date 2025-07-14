@@ -2,10 +2,15 @@ import telebot
 from telebot import types
 import sqlite3
 import re
+import time
 
 TOKEN = "7583760165:AAHzGN-N7nyHgFoWt9oamd2tgO7pLkKFWFs"
 OWNER_ID = 7341748124
 bot = telebot.TeleBot(TOKEN)
+
+# حذف وب‌هوک قبلی برای جلوگیری از ارور 409
+bot.remove_webhook()
+time.sleep(1)
 
 # اتصال به دیتابیس
 conn = sqlite3.connect("data.db", check_same_thread=False)
@@ -24,7 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
 ''')
 conn.commit()
 
-# افزودن کاربر در صورت نیاز
+# افزودن کاربر جدید
 def add_user(message):
     user_id = message.from_user.id
     name = message.from_user.first_name
@@ -130,4 +135,5 @@ def control_points(message):
         conn.commit()
         bot.reply_to(message, f"💔 {amount} امتیاز از <code>{uid}</code> کم شد!\nولی نگران نباش، جبران میشه! 💪", parse_mode="HTML")
 
+# شروع ربات
 bot.infinity_polling()
