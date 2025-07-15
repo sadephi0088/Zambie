@@ -3,7 +3,6 @@ from telebot import types
 import sqlite3
 import re
 import time
-import threading
 
 TOKEN = "7583760165:AAHzGN-N7nyHgFoWt9oamd2tgO7pLkKFWFs"
 OWNER_ID = 7341748124
@@ -33,12 +32,13 @@ try:
 except:
     pass
 
-# ساخت جدول lovers برای ثبت عشق
+# جدول عشق/همسر
 try:
     c.execute('''
-    CREATE TABLE IF NOT EXISTS lovers (
-        user1 INTEGER PRIMARY KEY,
-        user2 INTEGER
+    CREATE TABLE IF NOT EXISTS love (
+        user_id INTEGER PRIMARY KEY,
+        partner_id INTEGER,
+        request_time INTEGER
     )
     ''')
     conn.commit()
@@ -96,24 +96,23 @@ def show_profile(message):
     uid = message.from_user.id
     c.execute("SELECT * FROM users WHERE user_id = ?", (uid,))
     data = c.fetchone()
+
+    # دریافت همسر
+    c.execute("SELECT partner_id FROM love WHERE user_id = ?", (uid,))
+    partner_row = c.fetchone()
+    if partner_row and partner_row[0]:
+        partner_id = partner_row[0]
+        c.execute("SELECT name, username FROM users WHERE user_id = ?", (partner_id,))
+        p = c.fetchone()
+        partner_text = f"{p[0]} (@{p[1]})" if p else "نامشخص"
+    else:
+        partner_text = "ندارد"
+
     if data:
         tick = "دارد ✅" if data[5] == 1 or data[4] >= 5000 else "ندارد ❌"
         rank = get_rank(data[4])
         role = data[6] or "ممبر عادی 🧍"
         birthdate = data[7] if data[7] else "ثبت نشده ❌"
-        # اضافه کردن اسم و یوزرنیم عشق در پروفایل
-        c.execute("SELECT user2 FROM lovers WHERE user1 = ?", (uid,))
-        lover = c.fetchone()
-        if lover:
-            lover_id = lover[0]
-            c.execute("SELECT name, username FROM users WHERE user_id = ?", (lover_id,))
-            lover_data = c.fetchone()
-            lover_name = lover_data[0] if lover_data else "ناشناس"
-            lover_username = lover_data[1] or "ندارد"
-            lover_text = f"{lover_name} (@{lover_username})"
-        else:
-            lover_text = "ثبت نشده ❌"
-
         text = f'''
 ━━━【 پروفایل شما در گروه 】━━━
 
@@ -129,7 +128,7 @@ def show_profile(message):
 ⚜️ نشان تایید طلایی: {tick}
 
 •مشخصات خانواده شما•
-😍 اسم همسر یا عشق‌ِت: {lover_text}
+😍 اسم همسر یا عشق‌ِت: {partner_text}
 ♥️ اسم فرزندتون:
 🐣 حیوان خانگی شما:
 ♨️ فرقه‌ای که توش عضوی:
@@ -299,118 +298,90 @@ def control_points(message):
             c.execute("UPDATE users SET role = 'ممبر عادی 🧍' WHERE user_id = ?", (uid,))
         bot.reply_to(message, "🔻 مقام کاربر حذف شد.")
 
-pending_love_requests = {}  # نگه داشتن درخواست‌های عشق {user2_id: (user1_id, time)}
+# ========== بخش عشق و ازدواج ==========
 
-def remove_pending_request(user2_id):
-    if user2_id in pending_love_requests:
-        del pending_love_requests[user2_id]
-
+# ارسال درخواست عشق /love (ریپلای روی پیام فرد)
 @bot.message_handler(commands=['love'])
-def send_love_request(message):
+def love_request(message):
     if not message.reply_to_message:
-        return bot.reply_to(message, "❌ باید روی پیام کسی که دوست داری ریپلای کنی و /love بزنی.")
-    user1 = message.from_user
-    user2 = message.reply_to_message.from_user
+        return bot.reply_to(message, "❌ لطفا درخواست رو با ریپلای روی پیام کسی که دوست داری ارسال کن.")
+    from_id = message.from_user.id
+    to_user = message.reply_to_message.from_user
+    to_id = to_user.id
 
-    if user1.id == user2.id:
-        return bot.reply_to(message, "😅 نمی‌تونی به خودت عشق بدی!")
+    if from_id == to_id:
+        return bot.reply_to(message, "😅 نمی‌تونی به خودت درخواست بدی!")
+    
+    # بررسی ازدواج قبلی درخواست‌دهنده
+    c.execute("SELECT partner_id FROM love WHERE user_id = ?", (from_id,))
+    row = c.fetchone()
+    if row and row[0]:
+        bot.reply_to(message, f"❗ شما قبلا ازدواج کردی! اگر میخوای با {to_user.first_name} ازدواج کنی، اول باید طلاق بگیری.")
+        return
 
-    # ثبت اولیه کاربران
-    add_user(message)
-    add_user(message.reply_to_message)
-
-    # چک عشق قبلی
-    c.execute("SELECT user2 FROM lovers WHERE user1 = ?", (user1.id,))
-    if c.fetchone():
-        return bot.reply_to(message, "❌ تو قبلاً عشق داری، اول طلاق بگیر!")
-
-    c.execute("SELECT user2 FROM lovers WHERE user1 = ?", (user2.id,))
-    if c.fetchone():
-        return bot.reply_to(message, f"❌ {user2.first_name} قبلاً عشق داره، نمی‌تونی درخواست بدی!")
-
-    # اگر قبلاً درخواست بود، حذفش کنیم
-    if user2.id in pending_love_requests:
-        del pending_love_requests[user2.id]
-
-    # ذخیره درخواست و زمان
-    pending_love_requests[user2.id] = (user1.id, time.time())
-
-    text = f"""
-💖 درخواست عشق از طرف {user1.first_name} ([@{user1.username or 'ندارد'}]) به {user2.first_name} رسید!
-
-برای قبول کردن، فقط کافیست در گروه دستور زیر را ارسال کنی:
-/acceptlove
-
-اگر نمی‌خواهی این درخواست را قبول کنی:
-/declinelove
-
-⏳ این درخواست تا ۳ دقیقه آینده معتبر است.
-"""
-    bot.send_message(message.chat.id, text)
-
-    # پس از 3 دقیقه حذف درخواست اگر هنوز نپذیرفته شده
-    threading.Timer(180, lambda: remove_pending_request(user2.id)).start()
-
-@bot.message_handler(commands=['acceptlove'])
-def accept_love(message):
-    user2 = message.from_user
-    if user2.id not in pending_love_requests:
-        return bot.reply_to(message, "❌ درخواستی برای قبول کردن نداری!")
-
-    user1_id, req_time = pending_love_requests[user2.id]
-    # ثبت عشق در دیتابیس
+    # ذخیره درخواست با زمان فعلی
+    now = int(time.time())
     with conn:
-        c.execute("INSERT OR REPLACE INTO lovers (user1, user2) VALUES (?, ?)", (user1_id, user2.id))
-    del pending_love_requests[user2.id]
+        c.execute("INSERT OR REPLACE INTO love (user_id, partner_id, request_time) VALUES (?, ?, ?)", (from_id, to_id, now))
 
-    # گرفتن اطلاعات کاربر اول برای پیام
-    c.execute("SELECT name, username FROM users WHERE user_id = ?", (user1_id,))
-    user1_data = c.fetchone()
-    user1_name = user1_data[0] if user1_data else "ناشناس"
-    user1_username = user1_data[1] or "ندارد"
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(
+        types.InlineKeyboardButton("✅ قبول /setlove", callback_data=f"accept_love_{from_id}"),
+        types.InlineKeyboardButton("❌ رد /dislove", callback_data=f"reject_love_{from_id}")
+    )
+    bot.reply_to(message, f"💌 <b>{message.from_user.first_name}</b> (@{message.from_user.username or 'ندارد'}) به <b>{to_user.first_name}</b> (@{to_user.username or 'ندارد'}) درخواست عشق داده!\n\nنفر مقابل با دستور /setlove قبول و با /dislove رد کن.", reply_markup=keyboard, parse_mode="HTML")
 
-    # متن عاشقانه تایید
-    text = f"💞 عشق بین [{user1_name}](tg://user?id={user1_id}) و [{user2.first_name}](tg://user?id={user2.id}) ثبت شد! مبارک باشه! 🎉"
-    bot.send_message(message.chat.id, text, parse_mode="Markdown")
-
-@bot.message_handler(commands=['declinelove'])
-def decline_love(message):
-    user2 = message.from_user
-    if user2.id not in pending_love_requests:
-        return bot.reply_to(message, "❌ درخواستی برای رد کردن نداری!")
-    user1_id, _ = pending_love_requests[user2.id]
-    del pending_love_requests[user2.id]
-
-    # گرفتن نام درخواست‌دهنده برای پیام
-    c.execute("SELECT name FROM users WHERE user_id = ?", (user1_id,))
-    user1_name = c.fetchone()
-    user1_name = user1_name[0] if user1_name else "ناشناس"
-
-    text = f"💔 درخواست عشق {user1_name} توسط [{message.from_user.first_name}](tg://user?id={user2.id}) رد شد."
-    bot.send_message(message.chat.id, text, parse_mode="Markdown")
-
-@bot.message_handler(commands=['divorce'])
-def divorce(message):
-    user = message.from_user
-    c.execute("SELECT user2 FROM lovers WHERE user1 = ?", (user.id,))
+# قبول درخواست عشق /setlove
+@bot.message_handler(commands=['setlove'])
+def accept_love(message):
+    from_id = message.from_user.id
+    # پیدا کردن درخواستی که برای این نفر ارسال شده
+    c.execute("SELECT user_id, request_time FROM love WHERE partner_id = ?", (from_id,))
     row = c.fetchone()
     if not row:
-        return bot.reply_to(message, "❌ عشق ثبت شده‌ای نداری که طلاق بگیری!")
+        return bot.reply_to(message, "❌ درخواستی برای قبول کردن پیدا نشد.")
+    lover_id, request_time = row
+    now = int(time.time())
+    if now - request_time > 180:  # 3 دقیقه
+        with conn:
+            c.execute("DELETE FROM love WHERE user_id = ?", (lover_id,))
+        return bot.reply_to(message, "⏳ زمان درخواست ازدواج تمام شده است.")
+    
+    # ثبت همسری دو طرفه
+    with conn:
+        c.execute("INSERT OR REPLACE INTO love (user_id, partner_id, request_time) VALUES (?, ?, ?)", (lover_id, from_id, now))
+        c.execute("INSERT OR REPLACE INTO love (user_id, partner_id, request_time) VALUES (?, ?, ?)", (from_id, lover_id, now))
+    
+    bot.reply_to(message, f"💖 <b>{message.from_user.first_name}</b> و <b>{lover_id}</b> حالا عاشق هم هستند! ❤️‍🔥", parse_mode="HTML")
+
+# رد درخواست عشق /dislove
+@bot.message_handler(commands=['dislove'])
+def reject_love(message):
+    from_id = message.from_user.id
+    c.execute("SELECT user_id FROM love WHERE partner_id = ?", (from_id,))
+    row = c.fetchone()
+    if not row:
+        return bot.reply_to(message, "❌ درخواستی برای رد کردن پیدا نشد.")
+    lover_id = row[0]
+    with conn:
+        c.execute("DELETE FROM love WHERE user_id = ?", (lover_id,))
+    bot.reply_to(message, "💔 درخواست عشق رد شد.")
+
+# طلاق /ddislove (در گروه توسط یکی از زوجین)
+@bot.message_handler(commands=['ddislove'])
+def divorce(message):
+    user_id = message.from_user.id
+    c.execute("SELECT partner_id FROM love WHERE user_id = ?", (user_id,))
+    row = c.fetchone()
+    if not row or not row[0]:
+        return bot.reply_to(message, "❌ شما ازدواج نکردی که طلاق بگیری.")
     partner_id = row[0]
 
-    # حذف عشق دوطرفه (اگر وجود داشت)
     with conn:
-        c.execute("DELETE FROM lovers WHERE user1 = ? OR user1 = ?", (user.id, partner_id))
+        c.execute("DELETE FROM love WHERE user_id = ?", (user_id,))
+        c.execute("DELETE FROM love WHERE user_id = ?", (partner_id,))
 
-    # گرفتن اسم‌ها برای پیام
-    c.execute("SELECT name FROM users WHERE user_id = ?", (user.id,))
-    name1 = c.fetchone()
-    name1 = name1[0] if name1 else "ناشناس"
-    c.execute("SELECT name FROM users WHERE user_id = ?", (partner_id,))
-    name2 = c.fetchone()
-    name2 = name2[0] if name2 else "ناشناس"
+    bot.send_message(message.chat.id, f"💔 <a href='tg://user?id={user_id}'>شما</a> و <a href='tg://user?id={partner_id}'>همسرتون</a> از هم جدا شدید...", parse_mode="HTML")
 
-    text = f"💔 رابطه عاشقانه بین [{name1}](tg://user?id={user.id}) و [{name2}](tg://user?id={partner_id}) به پایان رسید."
-    bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 bot.infinity_polling()
