@@ -205,6 +205,37 @@ def mute_user(message):
     except Exception as e:
         bot.reply_to(message, f"خطا: {str(e)}")
 
+@bot.message_handler(commands=['give'])
+def gift_coin(message):
+    if not message.reply_to_message:
+        return bot.reply_to(message, "❌ باید روی پیام کسی که می‌خوای سکه بدی ریپلای کنی.")
+
+    args = message.text.split()
+    if len(args) != 2 or not args[1].isdigit():
+        return bot.reply_to(message, "❌ فرمت اشتباهه. مثال درست:\n/give 50")
+
+    amount = int(args[1])
+    if amount <= 0:
+        return bot.reply_to(message, "❌ عدد باید مثبت باشه.")
+
+    from_id = message.from_user.id
+    to_user = message.reply_to_message.from_user
+    to_id = to_user.id
+
+    if from_id == to_id:
+        return bot.reply_to(message, "😅 نمی‌تونی به خودت سکه بدی!")
+
+    c.execute("SELECT coin FROM users WHERE user_id = ?", (from_id,))
+    sender = c.fetchone()
+    if not sender or sender[0] < amount:
+        return bot.reply_to(message, "❌ سکه کافی نداری!")
+
+    with conn:
+        c.execute("UPDATE users SET coin = coin - ? WHERE user_id = ?", (amount, from_id))
+        c.execute("UPDATE users SET coin = coin + ? WHERE user_id = ?", (amount, to_id))
+
+    bot.reply_to(message, f"🎁 {amount} سکه با موفقیت به 👤 <b>{to_user.first_name}</b> (🆔 {to_id}) واریز شد!", parse_mode="HTML")
+
 @bot.message_handler(func=lambda m: m.reply_to_message and m.from_user.id == OWNER_ID)
 def control_points(message):
     uid = message.reply_to_message.from_user.id
