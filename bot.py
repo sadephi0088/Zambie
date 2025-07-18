@@ -34,7 +34,9 @@ pending_love TEXT DEFAULT '-'
 ''')
 conn.commit()
 except Exception:
-# اگر جدول قبلاً بوده و ستون‌های جدید نبودند، اضافه کن
+
+اگر جدول قبلاً بوده و ستون‌های جدید نبودند، اضافه کن
+
 try:
 c.execute("ALTER TABLE users ADD COLUMN birthdate TEXT")
 c.execute("ALTER TABLE users ADD COLUMN love TEXT DEFAULT '-'")
@@ -69,10 +71,10 @@ user_id = message.from_user.id
 name = message.from_user.first_name
 username = message.from_user.username if message.from_user.username else "ندارد"
 
-c.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))  
-if not c.fetchone():  
-    c.execute("INSERT INTO users (user_id, name, username) VALUES (?, ?, ?)", (user_id, name, username))  
-    conn.commit()
+c.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+if not c.fetchone():
+c.execute("INSERT INTO users (user_id, name, username) VALUES (?, ?, ?)", (user_id, name, username))
+conn.commit()
 
 def get_rank(score):
 if score < 500:
@@ -152,21 +154,21 @@ def set_birthdate(message):
 user_id = message.from_user.id
 text = message.text.strip()
 
-match = re.match(r'^/old (\d{4}/\d{1,2}/\d{1,2})$', text)  
-if not match:  
-    bot.reply_to(message, "❌ فرمت تاریخ تولد اشتباه است. لطفاً به شکل زیر وارد کنید:\n/old 1379/1/11")  
-    return  
+match = re.match(r'^/old (\d{4}/\d{1,2}/\d{1,2})$', text)
+if not match:
+bot.reply_to(message, "❌ فرمت تاریخ تولد اشتباه است. لطفاً به شکل زیر وارد کنید:\n/old 1379/1/11")
+return
 
-birthdate = match.group(1)  
+birthdate = match.group(1)
 
-c.execute("SELECT coin FROM users WHERE user_id = ?", (user_id,))  
-data = c.fetchone()  
-if not data or data[0] < 40:  
-    bot.reply_to(message, "❌ سکه کافی برای ثبت تاریخ تولد نداری!")  
-    return  
+c.execute("SELECT coin FROM users WHERE user_id = ?", (user_id,))
+data = c.fetchone()
+if not data or data[0] < 40:
+bot.reply_to(message, "❌ سکه کافی برای ثبت تاریخ تولد نداری!")
+return
 
-c.execute("UPDATE users SET birthdate = ?, coin = coin - 40 WHERE user_id = ?", (birthdate, user_id))  
-conn.commit()  
+c.execute("UPDATE users SET birthdate = ?, coin = coin - 40 WHERE user_id = ?", (birthdate, user_id))
+conn.commit()
 bot.reply_to(message, f"🎂 تاریخ تولد شما در پروفایلت ثبت شد و ۴۰ سکه از حسابت کسر گردید. 🎉")
 
 @bot.message_handler(commands=['tik'])
@@ -250,48 +252,52 @@ def control_points(message):
 if message.from_user.id != OWNER_ID:
 return
 
-uid = message.reply_to_message.from_user.id  
-text = message.text.strip()  
+uid = message.reply_to_message.from_user.id
+text = message.text.strip()
 
-# سکه  
-if re.match(r'^\+ 🪙 \d+$', text):  
-    amount = int(text.split()[-1])  
-    c.execute("UPDATE users SET coin = coin + ? WHERE user_id = ?", (amount, uid))  
-    conn.commit()  
-    bot.reply_to(message, f"💰 {amount} سکه به حساب {uid} اضافه شد!", parse_mode="HTML")  
+سکه
 
-elif re.match(r'^\- 🪙 \d+$', text):  
-    amount = int(text.split()[-1])  
-    c.execute("UPDATE users SET coin = coin - ? WHERE user_id = ?", (amount, uid))  
-    conn.commit()  
-    bot.reply_to(message, f"💸 {amount} سکه از حساب {uid} کم شد!", parse_mode="HTML")  
+if re.match(r'^+ 🪙 \d+$', text):
+amount = int(text.split()[-1])
+c.execute("UPDATE users SET coin = coin + ? WHERE user_id = ?", (amount, uid))
+conn.commit()
+bot.reply_to(message, f"💰 {amount} سکه به حساب {uid} اضافه شد!", parse_mode="HTML")
 
-# امتیاز  
-elif re.match(r'^\+ \d+$', text):  
-    amount = int(text.split()[-1])  
-    c.execute("UPDATE users SET score = score + ? WHERE user_id = ?", (amount, uid))  
-    conn.commit()  
-    bot.reply_to(message, f"🎉 {amount} امتیاز اضافه شد!", parse_mode="HTML")  
+elif re.match(r'^- 🪙 \d+$', text):
+amount = int(text.split()[-1])
+c.execute("UPDATE users SET coin = coin - ? WHERE user_id = ?", (amount, uid))
+conn.commit()
+bot.reply_to(message, f"💸 {amount} سکه از حساب {uid} کم شد!", parse_mode="HTML")
 
-elif re.match(r'^\- \d+$', text):  
-    amount = int(text.split()[-1])  
-    c.execute("UPDATE users SET score = score - ? WHERE user_id = ?", (amount, uid))  
-    conn.commit()  
-    bot.reply_to(message, f"💔 {amount} امتیاز کم شد!", parse_mode="HTML")  
+امتیاز
 
-# مقام اضافه کردن  
-elif re.match(r'^\+m\d{1,2}$', text):  
-    key = text[1:]  
-    if key in ranks:  
-        c.execute("UPDATE users SET role = ? WHERE user_id = ?", (ranks[key], uid))  
-        conn.commit()  
-        bot.reply_to(message, f"👑 مقام جدید: <b>{ranks[key]}</b> برای کاربر ثبت شد!", parse_mode="HTML")  
+elif re.match(r'^+ \d+$', text):
+amount = int(text.split()[-1])
+c.execute("UPDATE users SET score = score + ? WHERE user_id = ?", (amount, uid))
+conn.commit()
+bot.reply_to(message, f"🎉 {amount} امتیاز اضافه شد!", parse_mode="HTML")
 
-# مقام حذف کردن  
-elif re.match(r'^\-m\d{1,2}$', text):  
-    c.execute("UPDATE users SET role = 'ممبر عادی 🧍' WHERE user_id = ?", (uid,))  
-    conn.commit()  
-    bot.reply_to(message, "🔻 مقام کاربر حذف شد و به حالت پیش‌فرض برگشت.")
+elif re.match(r'^- \d+$', text):
+amount = int(text.split()[-1])
+c.execute("UPDATE users SET score = score - ? WHERE user_id = ?", (amount, uid))
+conn.commit()
+bot.reply_to(message, f"💔 {amount} امتیاز کم شد!", parse_mode="HTML")
+
+مقام اضافه کردن
+
+elif re.match(r'^+m\d{1,2}$', text):
+key = text[1:]
+if key in ranks:
+c.execute("UPDATE users SET role = ? WHERE user_id = ?", (ranks[key], uid))
+conn.commit()
+bot.reply_to(message, f"👑 مقام جدید: <b>{ranks[key]}</b> برای کاربر ثبت شد!", parse_mode="HTML")
+
+مقام حذف کردن
+
+elif re.match(r'^-m\d{1,2}$', text):
+c.execute("UPDATE users SET role = 'ممبر عادی 🧍' WHERE user_id = ?", (uid,))
+conn.commit()
+bot.reply_to(message, "🔻 مقام کاربر حذف شد و به حالت پیش‌فرض برگشت.")
 
 -------------------- بخش ازدواج و طلاق --------------------
 
@@ -304,48 +310,52 @@ if not message.reply_to_message:
 bot.reply_to(message, "برای ازدواج باید به پیام کسی ریپلای کنی 😍")
 return
 
-lover_id = message.reply_to_message.from_user.id  
+lover_id = message.reply_to_message.from_user.id
 
-if lover_id == user_id:  
-    bot.reply_to(message, "با خودت که نمی‌تونی ازدواج کنی عزیزم 😅")  
-    return  
+if lover_id == user_id:
+bot.reply_to(message, "با خودت که نمی‌تونی ازدواج کنی عزیزم 😅")
+return
 
-add_user(message)  # ثبت درخواست‌کننده اگر نیست  
+add_user(message)  # ثبت درخواست‌کننده اگر نیست
 
-# چک کن درخواست فعالی هست یا نه  
-if user_id in pending_requests:  
-    bot.reply_to(message, "❌ تو قبلاً یک درخواست ازدواج فرستادی که هنوز جواب داده نشده!")  
-    return  
+چک کن درخواست فعالی هست یا نه
 
-# چک کن که خود شخص هدف هم فرم داره  
-c.execute("SELECT user_id FROM users WHERE user_id = ?", (lover_id,))  
-if not c.fetchone():  
-    bot.reply_to(message, "طرف مقابل هنوز فرم نداره، بگو اول یه پیام بده ✨")  
-    return  
+if user_id in pending_requests:
+bot.reply_to(message, "❌ تو قبلاً یک درخواست ازدواج فرستادی که هنوز جواب داده نشده!")
+return
 
-# چک سکه درخواست‌کننده  
-c.execute("SELECT coin, love, pending_love FROM users WHERE user_id = ?", (user_id,))  
-data = c.fetchone()  
-if not data:  
-    bot.reply_to(message, "اول با یه پیام دیگه فرم بساز بعد دوباره تلاش کن 🌸")  
-    return  
-coin, love, pending_love = data  
-if coin < 40:  
-    bot.reply_to(message, "برای ازدواج باید ۴۰ سکه داشته باشی 💰")  
-    return  
+چک کن که خود شخص هدف هم فرم داره
 
-if love != '-' and love != '':  
-    bot.reply_to(message, "تو قبلاً ازدواج کردی عزیزم 💞")  
-    return  
+c.execute("SELECT user_id FROM users WHERE user_id = ?", (lover_id,))
+if not c.fetchone():
+bot.reply_to(message, "طرف مقابل هنوز فرم نداره، بگو اول یه پیام بده ✨")
+return
 
-if pending_love != '-' and pending_love != '':  
-    bot.reply_to(message, "❌ تو در حال حاضر یک درخواست ازدواج داری که هنوز جواب ندادی!")  
-    return  
+چک سکه درخواست‌کننده
 
-# ثبت درخواست  
-pending_requests[user_id] = lover_id  
-c.execute("UPDATE users SET pending_love = ? WHERE user_id = ?", (str(lover_id), user_id))  
-conn.commit()  
+c.execute("SELECT coin, love, pending_love FROM users WHERE user_id = ?", (user_id,))
+data = c.fetchone()
+if not data:
+bot.reply_to(message, "اول با یه پیام دیگه فرم بساز بعد دوباره تلاش کن 🌸")
+return
+coin, love, pending_love = data
+if coin < 40:
+bot.reply_to(message, "برای ازدواج باید ۴۰ سکه داشته باشی 💰")
+return
+
+if love != '-' and love != '':
+bot.reply_to(message, "تو قبلاً ازدواج کردی عزیزم 💞")
+return
+
+if pending_love != '-' and pending_love != '':
+bot.reply_to(message, "❌ تو در حال حاضر یک درخواست ازدواج داری که هنوز جواب ندادی!")
+return
+
+ثبت درخواست
+
+pending_requests[user_id] = lover_id
+c.execute("UPDATE users SET pending_love = ? WHERE user_id = ?", (str(lover_id), user_id))
+conn.commit()
 
 bot.reply_to(message, f"✅ درخواست ازدواج به کاربر ارسال شد. {message.reply_to_message.from_user.first_name} عزیز، برای قبول درخواست، به این پیام ریپلای کن و دستور /accept را بفرست.")
 
@@ -353,82 +363,94 @@ bot.reply_to(message, f"✅ درخواست ازدواج به کاربر ارسا
 def accept_love(message):
 user_id = message.from_user.id
 
-# باید ریپلای باشه روی پیام درخواست ازدواج  
-if not message.reply_to_message:  
-    bot.reply_to(message, "برای قبول درخواست ازدواج باید روی پیام درخواست ازدواج ریپلای کنی.")  
-    return  
+باید ریپلای باشه روی پیام درخواست ازدواج
 
-# صاحب درخواست (ارسال کننده)  
-replied_user_id = message.reply_to_message.from_user.id  
+if not message.reply_to_message:
+bot.reply_to(message, "برای قبول درخواست ازدواج باید روی پیام درخواست ازدواج ریپلای کنی.")
+return
 
-# بررسی درخواست  
-if replied_user_id not in pending_requests:  
-    bot.reply_to(message, "درخواست ازدواج معتبر پیدا نشد.")  
-    return  
+صاحب درخواست (ارسال کننده)
 
-if pending_requests[replied_user_id] != user_id:  
-    bot.reply_to(message, "این درخواست ازدواج به تو ارسال نشده است.")  
-    return  
+replied_user_id = message.reply_to_message.from_user.id
 
-# چک سکه درخواست‌کننده مجدد (برای اطمینان)  
-c.execute("SELECT coin FROM users WHERE user_id = ?", (replied_user_id,))  
-coin_data = c.fetchone()  
+بررسی درخواست
 
-if not coin_data or coin_data[0] < 40:  
-    bot.reply_to(message, "کسی که درخواست ازدواج داده سکه کافی ندارد.")  
-    return  
+if replied_user_id not in pending_requests:
+bot.reply_to(message, "درخواست ازدواج معتبر پیدا نشد.")
+return
 
-# ثبت عشق و عشق آیدی دوطرف  
-c.execute("SELECT name FROM users WHERE user_id = ?", (replied_user_id,))  
-lover_name = c.fetchone()[0]  
+if pending_requests[replied_user_id] != user_id:
+bot.reply_to(message, "این درخواست ازدواج به تو ارسال نشده است.")
+return
 
-c.execute("SELECT name FROM users WHERE user_id = ?", (user_id,))  
-user_name = c.fetchone()[0]  
+چک سکه درخواست‌کننده مجدد (برای اطمینان)
 
-# ثبت ازدواج در دیتابیس  
-c.execute("UPDATE users SET love = ?, love_id = ?, pending_love = '-' WHERE user_id = ?", (user_name, user_id, replied_user_id))  
-c.execute("UPDATE users SET love = ?, love_id = ?, pending_love = '-' WHERE user_id = ?", (lover_name, replied_user_id, user_id))  
-# کم کردن 40 سکه از درخواست کننده  
-c.execute("UPDATE users SET coin = coin - 40 WHERE user_id = ?", (replied_user_id,))  
-conn.commit()  
+c.execute("SELECT coin FROM users WHERE user_id = ?", (replied_user_id,))
+coin_data = c.fetchone()
 
-del pending_requests[replied_user_id]  
+if not coin_data or coin_data[0] < 40:
+bot.reply_to(message, "کسی که درخواست ازدواج داده سکه کافی ندارد.")
+return
 
-# ارسال پیام عاشقانه و شادی در گروه  
+ثبت عشق و عشق آیدی دوطرف
+
+c.execute("SELECT name FROM users WHERE user_id = ?", (replied_user_id,))
+lover_name = c.fetchone()[0]
+
+c.execute("SELECT name FROM users WHERE user_id = ?", (user_id,))
+user_name = c.fetchone()[0]
+
+ثبت ازدواج در دیتابیس
+
+c.execute("UPDATE users SET love = ?, love_id = ?, pending_love = '-' WHERE user_id = ?", (user_name, user_id, replied_user_id))
+c.execute("UPDATE users SET love = ?, love_id = ?, pending_love = '-' WHERE user_id = ?", (lover_name, replied_user_id, user_id))
+
+کم کردن 40 سکه از درخواست کننده
+
+c.execute("UPDATE users SET coin = coin - 40 WHERE user_id = ?", (replied_user_id,))
+conn.commit()
+
+del pending_requests[replied_user_id]
+
+ارسال پیام عاشقانه و شادی در گروه
+
 bot.send_message(message.chat.id, f"💖🎉 {lover_name} و {user_name} حالا رسماً با هم ازدواج کردند! تبریک میگم به این زوج خوشبخت! 💍❤️")
 
 @bot.message_handler(commands=['divorce'])
 def divorce(message):
 user_id = message.from_user.id
 
-c.execute("SELECT love, love_id FROM users WHERE user_id = ?", (user_id,))  
-data = c.fetchone()  
-if not data:  
-    bot.reply_to(message, "❌ اول باید ثبت نام کنی عزیزم!")  
-    return  
+c.execute("SELECT love, love_id FROM users WHERE user_id = ?", (user_id,))
+data = c.fetchone()
+if not data:
+bot.reply_to(message, "❌ اول باید ثبت نام کنی عزیزم!")
+return
 
-love_name = data[0]  
-love_id = data[1]  
+love_name = data[0]
+love_id = data[1]
 
-if love_name == '-' or love_id == 0:  
-    bot.reply_to(message, "❌ تو الان ازدواج نکردی که طلاق بگیری!")  
-    return  
+if love_name == '-' or love_id == 0:
+bot.reply_to(message, "❌ تو الان ازدواج نکردی که طلاق بگیری!")
+return
 
-# پاک کردن ازدواج برای هر دو طرف  
-c.execute("UPDATE users SET love = '-', love_id = 0 WHERE user_id = ?", (user_id,))  
-c.execute("UPDATE users SET love = '-', love_id = 0 WHERE user_id = ?", (love_id,))  
-conn.commit()  
+پاک کردن ازدواج برای هر دو طرف
 
-bot.reply_to(message, "💔 طلاق ثبت شد. حالا هر دو آزاد هستید!")  
+c.execute("UPDATE users SET love = '-', love_id = 0 WHERE user_id = ?", (user_id,))
+c.execute("UPDATE users SET love = '-', love_id = 0 WHERE user_id = ?", (love_id,))
+conn.commit()
 
-# پیام به گروه در مورد طلاق  
-bot.send_message(message.chat.id, f"💔 {message.from_user.first_name} و {love_name} از هم طلاق گرفتند. برای هر دویشان آرزوی خوشبختی داریم!")  
+bot.reply_to(message, "💔 طلاق ثبت شد. حالا هر دو آزاد هستید!")
 
-# پاک کردن درخواست‌های در حال انتظار اگر باشند  
-if user_id in pending_requests:  
-    del pending_requests[user_id]  
-if love_id in pending_requests:  
-    del pending_requests[love_id]
+پیام به گروه در مورد طلاق
+
+bot.send_message(message.chat.id, f"💔 {message.from_user.first_name} و {love_name} از هم طلاق گرفتند. برای هر دویشان آرزوی خوشبختی داریم!")
+
+پاک کردن درخواست‌های در حال انتظار اگر باشند
+
+if user_id in pending_requests:
+del pending_requests[user_id]
+if love_id in pending_requests:
+del pending_requests[love_id]
 
 اجرای ربات
 
