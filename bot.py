@@ -14,7 +14,7 @@ time.sleep(1)
 conn = sqlite3.connect("data.db", check_same_thread=False)
 c = conn.cursor()
 
-# ایجاد جدول users با ستون love برای ازدواج
+# ایجاد جدول users و اضافه کردن ستون‌ها در صورت نیاز
 try:
     c.execute('''
     CREATE TABLE IF NOT EXISTS users (
@@ -25,8 +25,7 @@ try:
         score INTEGER DEFAULT 250,
         gold_tick INTEGER DEFAULT 0,
         role TEXT DEFAULT 'ممبر عادی 🧍',
-        birthdate TEXT,
-        love TEXT DEFAULT '-'
+        birthdate TEXT
     )
     ''')
     conn.commit()
@@ -36,12 +35,14 @@ except Exception:
         conn.commit()
     except:
         pass
-    try:
-        c.execute("ALTER TABLE users ADD COLUMN love TEXT DEFAULT '-'")
-        conn.commit()
-    except:
-        pass
 
+try:
+    c.execute("ALTER TABLE users ADD COLUMN love TEXT DEFAULT '-'")
+    conn.commit()
+except sqlite3.OperationalError:
+    pass  # ستون love از قبل وجود دارد
+
+# دیکشنری مقام‌ها با ایموجی
 ranks = {
     "m1": "سوگولی گروه 💋",
     "m2": "پرنسس گروه 👑",
@@ -149,6 +150,7 @@ def set_birthdate(message):
         bot.reply_to(message, "❌ سکه کافی برای ثبت تاریخ تولد نداری!")
         return
 
+    # ثبت یا به‌روزرسانی تاریخ تولد
     c.execute("UPDATE users SET birthdate = ?, coin = coin - 40 WHERE user_id = ?", (birthdate, user_id))
     conn.commit()
     bot.reply_to(message, f"🎂 تاریخ تولد شما در پروفایلت ثبت شد و ۴۰ سکه از حسابت کسر گردید. 🎉")
@@ -277,7 +279,8 @@ def control_points(message):
         conn.commit()
         bot.reply_to(message, "🔻 مقام کاربر حذف شد و به حالت پیش‌فرض برگشت.")
 
-# ======= بخش ازدواج =======
+# دستورات ازدواج و طلاق
+
 @bot.message_handler(commands=['love'])
 def love_cmd(message):
     if not message.reply_to_message:
@@ -293,13 +296,16 @@ def love_cmd(message):
 
     c.execute("SELECT coin, love FROM users WHERE user_id=?", (user_id,))
     result = c.fetchone()
+
     if not result:
         bot.reply_to(message, "اول با یه پیام دیگه فرم بساز بعد دوباره تلاش کن 🌸")
         return
+
     coin, current_love = result
     if coin < 40:
         bot.reply_to(message, "برای ازدواج باید ۴۰ سکه داشته باشی 💰")
         return
+
     if current_love != "-" and current_love != "":
         bot.reply_to(message, "تو قبلاً ازدواج کردی عزیزم 💞")
         return
@@ -316,11 +322,11 @@ def love_cmd(message):
     # ثبت در دیتابیس
     c.execute("UPDATE users SET love=? WHERE user_id=?", (lover_name, user_id))
     c.execute("UPDATE users SET love=? WHERE user_id=?", (my_name, lover_id))
-    c.execute("UPDATE users SET coin = coin - 40 WHERE user_id=?", (user_id,))
+    c.execute("UPDATE users SET coin = coin - 40 WHERE user_id = ?", (user_id,))
     conn.commit()
+
     bot.reply_to(message, f"🎉 تبریک! {my_name} و {lover_name} با هم ازدواج کردن!\nاز این به بعد توی فرم‌تون ❤️ همسر ثبت می‌شه.")
 
-# ======= بخش طلاق =======
 @bot.message_handler(commands=['dlove'])
 def dlove_cmd(message):
     user_id = message.from_user.id
@@ -330,6 +336,7 @@ def dlove_cmd(message):
     if not result:
         bot.reply_to(message, "فرمی نداری که بخوای طلاق بگیری 😕")
         return
+
     partner_name = result[0]
     if partner_name == "-" or partner_name == "":
         bot.reply_to(message, "تو در حال حاضر در رابطه نیستی 😢")
