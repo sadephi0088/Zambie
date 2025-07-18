@@ -14,7 +14,7 @@ time.sleep(1)
 conn = sqlite3.connect("data.db", checksamethread=False)
 c = conn.cursor()
 
-ایجاد جدول کاربران با ستون‌های کامل
+ایجاد جدول کاربران با ستون‌های کامل #
 try:
     c.execute('''
     CREATE TABLE IF NOT EXISTS users (
