@@ -17,7 +17,7 @@ time.sleep(1)
 conn = sqlite3.connect("data.db", check_same_thread=False)
 c = conn.cursor()
 
-# جدول کاربران
+# ایجاد جدول کاربران
 c.execute('''
 CREATE TABLE IF NOT EXISTS users (
     user_id      INTEGER PRIMARY KEY,
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_blocked   INTEGER DEFAULT 0
 )
 ''')
-# جدول فرقه‌ها
+# ایجاد جدول فرقه‌ها
 c.execute('''
 CREATE TABLE IF NOT EXISTS sects (
     name     TEXT PRIMARY KEY,
@@ -48,13 +48,14 @@ conn.commit()
 
 # دیکشنری مقام‌ها
 ranks = {
-    "m1":"سوگولی گروه 💋","m2":"پرنسس گروه 👑","m3":"ملکه گروه 👸","m4":"شوالیه گروه 🛡️",
-    "m5":"رهبر گروه 🦁","m6":"اونر گروه 🌀","m7":"زامبی الفا گروه 🧟‍♂️","m8":"نفس گروه 💨",
-    "m9":"بادیگارد گروه 🕶️","m10":"ممبر عادی 🧍","m11":"عاشق دلباخته ❤️‍🔥","m12":"برده گروه 🧎",
-    "m13":"رئیس گروه 🧠","m14":"کصشرگوی گروه 🐵","m15":"دختر شاه 👑👧"
+    "m1": "سوگولی گروه 💋", "m2": "پرنسس گروه 👑", "m3": "ملکه گروه 👸",
+    "m4": "شوالیه گروه 🛡️", "m5": "رهبر گروه 🦁", "m6": "اونر گروه 🌀",
+    "m7": "زامبی الفا گروه 🧟‍♂️", "m8": "نفس گروه 💨", "m9": "بادیگارد گروه 🕶️",
+    "m10": "ممبر عادی 🧍", "m11": "عاشق دلباخته ❤️‍🔥", "m12": "برده گروه 🧎",
+    "m13": "رئیس گروه 🧠", "m14": "کصشرگوی گروه 🐵", "m15": "دختر شاه 👑👧"
 }
 
-# حافظه موقت درخواست‌ها
+# حافظه موقت برای درخواست‌ها
 pending_loves = {}
 pending_children = {}
 pending_sect_invites = {}
@@ -66,7 +67,10 @@ sect_ranking_timestamp = 0
 def add_user(uid, name, uname):
     c.execute("SELECT 1 FROM users WHERE user_id=?", (uid,))
     if not c.fetchone():
-        c.execute("INSERT INTO users(user_id,name,username) VALUES(?,?,?)", (uid, name, uname))
+        c.execute(
+            "INSERT INTO users(user_id,name,username) VALUES(?,?,?)",
+            (uid, name, uname)
+        )
         conn.commit()
 
 def get_username(uid):
@@ -86,7 +90,8 @@ def get_rank(score):
     return "اسطوره 🚀"
 
 def is_admin(uid):
-    if uid == OWNER_ID: return True
+    if uid == OWNER_ID:
+        return True
     c.execute("SELECT is_admin FROM users WHERE user_id=?", (uid,))
     r = c.fetchone()
     return bool(r and r[0] == 1)
@@ -111,7 +116,8 @@ def update_sect_ranking():
     while True:
         rows = c.execute(
             "SELECT sect, COUNT(*) cnt FROM users "
-            "WHERE sect IS NOT NULL GROUP BY sect ORDER BY cnt DESC LIMIT 10"
+            "WHERE sect IS NOT NULL GROUP BY sect "
+            "ORDER BY cnt DESC LIMIT 10"
         ).fetchall()
         sect_ranking_cache = rows
         sect_ranking_timestamp = time.time()
@@ -131,23 +137,23 @@ def cmd_start(m):
 طلاق             /dlove
 انتقال سکه       /give
 ثبت پت           /pet <نام>
-حذف پت          /unpet
-درخواست فرزند    /child
-حذف فرزند       /dchild
+حذف پت           /unpet
+درخواست فرزند     /child
+حذف فرزند        /dchild
 ایموجی           /emoji <ایموجی>
-حذف ایموجی      /reemoji
+حذف ایموجی       /reemoji
 فرقه‌سازی        /sectcreate <نام>
-دعوت فرقه       /sectinvite
-خروج فرقه       /sectleave
-انحلال فرقه     /sectdisband
-اخراج فرقه      /dferghe
-لیست فرقه‌ها    /rank
-اطلاعات فرقه    /mee
-بلاک کاربر      /block (ریپلای)
-رفع بلاک       /dblock (ریپلای)
-فروشگاه        /shop
+دعوت فرقه        /sectinvite
+خروج فرقه        /sectleave
+انحلال فرقه      /sectdisband
+اخراج فرقه       /dferghe
+لیست فرقه‌ها     /rank
+اطلاعات فرقه     /mee
+بلاک کاربر       /block (ریپلای)
+رفع بلاک         /dblock (ریپلای)
+فروشگاه         /shop
 طلسم پاک‌سازی   /del
-طلسم سکوت      /mut
+طلسم سکوت       /mut
 '''
     bot.reply_to(m, txt)
 
@@ -155,72 +161,69 @@ def cmd_start(m):
 @blocked_guard
 def cmd_help(m):
     bot.reply_to(m,
-        "/start  /my  /love  /dlove  /give  /pet  /unpet  /child  /dchild  /emoji  /reemoji\n"
-        "/sectcreate  /sectinvite  /sectleave  /sectdisband  /dferghe  /rank  /mee\n"
-        "/block  /dblock  /shop  /del  /mut"
+        "/start /my /love /dlove /give /pet /unpet /child /dchild /emoji /reemoji\n"
+        "/sectcreate /sectinvite /sectleave /sectdisband /dferghe /rank /mee\n"
+        "/block /dblock /shop /del /mut +500 -500 +100 🪙 -100 🪙 /tik /dtik"
     )
 
 @bot.message_handler(commands=['ranks'])
 @blocked_guard
 def cmd_bot_ranks(m):
-    txt = "📜 مقام‌های ربات:\n" + "\n".join(f"{k} — {v}" for k,v in ranks.items())
+    txt = "📜 مقام‌های ربات:\n" + "\n".join(f"{k} — {v}" for k, v in ranks.items())
     bot.reply_to(m, txt)
 
 # —————————————————————————————————————————————
-# PROFILE / OLD
+# PROFILE / OLD (نسخه اورجینال پروفایل)
 @bot.message_handler(commands=['my'])
 @blocked_guard
 def cmd_my(m):
-    # نمایش خود یا دیگران (ادمین/مالک با ریپلای)
     if m.reply_to_message and is_admin(m.from_user.id):
         target = m.reply_to_message.from_user.id
     else:
         target = m.from_user.id
 
-    # ثبت اولیه اگر لازم
-    if target != m.from_user.id:
-        add_user(m.reply_to_message.from_user.id,
-                 m.reply_to_message.from_user.first_name,
-                 m.reply_to_message.from_user.username or "ندارد")
+    add_user(target,
+             m.reply_to_message.from_user.first_name if m.reply_to_message else m.from_user.first_name,
+             get_username(target))
 
     c.execute("SELECT * FROM users WHERE user_id=?", (target,))
     d = c.fetchone()
     if not d:
-        return bot.reply_to(m, "❌ خطا در واکشی پروفایل.")
+        return bot.reply_to(m, "❌ خطا در بازیابی پروفایل.")
 
-    # جمع‌آوری فرزندان
     c.execute("SELECT username FROM users WHERE child_of=?", (target,))
-    children = [f"@{r[0]}" for r in c.fetchall()]
-    children_txt = ", ".join(children) if children else "ندارد ❌"
+    childs = [f"@{r[0]}" for r in c.fetchall()]
+    children_txt = ", ".join(childs) if childs else ""
 
     text = f'''
 ━━━【 پروفایل شما در گروه 】━━━
 
-•اطلاعات حقیقی•
+•مشخصات فردی شما•
 👤 نام: {d[1]}
 ✨ یوزرنیم: @{d[2]}
 ⚔️ آیدی عددی: {d[0]}
 
 🌐 کشور شما: 🇮🇷 ایران
 
-•• دارایی‌ها و امتیازات: ••
-💰 سکه‌ها: {d[3]}
-💎 امتیاز: {d[4]}
-⚜️ نشان طلایی: {"دارد ✅" if d[5]==1 or d[4]>=5000 else "ندارد ❌"}
+•• دارایی‌ها و امتیازت: ••
+💰 سکه‌هات: {d[3]}
+💎 امتیازت: {d[4]}
+⚜️ نشان تایید طلایی: {"دارد ✅" if d[5]==1 else "ندارد ❌"}
 
-•مشخصات خانواده و علاقه‌ها:•
-😍 همسر/عشق: {get_username(d[8])}
-👶 فرزندان: {children_txt}
-🐾 پت: {d[10] or "ثبت نشده ❌"}
-🎭 ایموجی: {d[11] or "ثبت نشده ❌"}
-🏷️ فرقه: {d[12] or "ثبت نشده ❌"}
-🎂 تولد: {d[7] or "ثبت نشده ❌"}
+•مشخصات خانواده شما•
+😍 اسم همسر یا عشق‌ِت: {get_username(d[8])}
+♥️ اسم فرزندتون: {children_txt}
+🐣 حیوان خانگی شما: {d[10] or ""}
+♨️ فرقه‌ای که توش عضوی: {d[12] or ""}
 
-🔮 قدرت‌ها و طلسم‌ها: ثبت نشده
+🌙 شکلک اختصاصی: {d[11] or ""}
+🎂 تاریخ تولدت: {d[7] or "ثبت نشده ❌"}
+🔮 قدرت‌ها و طلسم‌ها: (نحوه اجرا /shop)
 
-:: در گروه ::
-🏆 درجه: {get_rank(d[4])}
-💠 مقام: {d[6]}
+:: در گروه :::::
+
+▪︎🏆 درجه شما در گروه: {get_rank(d[4])}
+▪︎💠 مقام شما در گروه: {d[6]}
 '''
     bot.reply_to(m, text)
 
@@ -255,7 +258,7 @@ def cmd_love(m):
         types.InlineKeyboardButton("💖 قبول می‌کنم", callback_data=f"accept_{rid}"),
         types.InlineKeyboardButton("💔 قبول نمی‌کنم", callback_data=f"reject_{rid}")
     )
-    txt = f"💌 @{m.from_user.username} درخواست ازدواج به @{m.reply_to_message.from_user.username} داده!\nقبول می‌کنی؟"
+    txt = f"💌 @{m.from_user.username} درخواست ازدواج به @{m.reply_to_message.from_user.username} داد!\nقبول می‌کنی؟"
     sent = bot.send_message(m.chat.id, txt, reply_markup=kb)
     pending_loves[sent.message_id] = rid
 
@@ -264,8 +267,7 @@ def cb_love(call):
     mid = call.message.message_id
     if mid not in pending_loves:
         return bot.answer_callback_query(call.id, "❌ درخواست منقضی شد.")
-    rid = pending_loves[mid]
-    sid = call.from_user.id
+    rid = pending_loves[mid]; sid = call.from_user.id
     if call.data.startswith("accept_"):
         c.execute("SELECT coin FROM users WHERE user_id=?", (rid,))
         if c.fetchone()[0] < 40:
@@ -302,8 +304,7 @@ def cmd_pet(m):
     parts = m.text.strip().split(maxsplit=1)
     if len(parts) != 2:
         return bot.reply_to(m, "❌ فرمت صحیح: /pet نام‌حیوان")
-    pet = parts[1]
-    uid = m.from_user.id
+    pet = parts[1]; uid = m.from_user.id
     c.execute("SELECT coin FROM users WHERE user_id=?", (uid,))
     if c.fetchone()[0] < 40:
         return bot.reply_to(m, "❌ سکه کافی نیست!")
@@ -348,8 +349,7 @@ def cb_child(call):
     mid = call.message.message_id
     if mid not in pending_children:
         return bot.answer_callback_query(call.id, "❌ درخواست منقضی شد.")
-    rid = pending_children[mid]
-    sid = call.from_user.id
+    rid = pending_children[mid]; sid = call.from_user.id
     if call.data.startswith("caccept_"):
         c.execute("SELECT coin FROM users WHERE user_id=?", (rid,))
         if c.fetchone()[0] < 40:
@@ -369,8 +369,7 @@ def cb_child(call):
 def cmd_dchild(m):
     if not m.reply_to_message:
         return bot.reply_to(m, "❌ برای حذف فرزند ریپلای کنید.")
-    uid = m.from_user.id
-    victim = m.reply_to_message.from_user.id
+    victim = m.reply_to_message.from_user.id; uid = m.from_user.id
     c.execute("SELECT child_of FROM users WHERE user_id=?", (victim,))
     row = c.fetchone()
     if not row or row[0] != uid:
@@ -407,24 +406,67 @@ def cmd_reemoji(m):
     bot.reply_to(m, "🎭 ایموجی شما حذف شد.")
 
 # —————————————————————————————————————————————
-# COIN TRANSFER
-@bot.message_handler(commands=['give'])
-@blocked_guard
-def cmd_give(m):
+# COIN & SCORE CONTROLS (OWNER/ADMINS)
+@bot.message_handler(func=lambda m: m.reply_to_message and bool(re.match(r'^(\+|\-)', m.text.strip())))
+def control_points(m):
+    uid = m.from_user.id
+    if not (uid == OWNER_ID or is_admin(uid)):
+        return
+    target = m.reply_to_message.from_user.id
+    text = m.text.strip()
+    # امتیاز: +500 یا -500
+    m_add = re.match(r'^\+ (\d+)$', text)
+    m_sub = re.match(r'^\- (\d+)$', text)
+    # سکه: +100 🪙 یا -100 🪙
+    c_add = re.match(r'^\+ (\d+)\s+🪙$', text)
+    c_sub = re.match(r'^\- (\d+)\s+🪙$', text)
+
+    if m_add:
+        amt = int(m_add.group(1))
+        c.execute("UPDATE users SET score=score+? WHERE user_id=?", (amt, target))
+        conn.commit()
+        bot.reply_to(m, f"🎉 {amt} امتیاز به @{get_username(target)} اضافه شد!")
+    elif m_sub:
+        amt = int(m_sub.group(1))
+        c.execute("UPDATE users SET score=score-? WHERE user_id=?", (amt, target))
+        conn.commit()
+        bot.reply_to(m, f"💔 {amt} امتیاز از @{get_username(target)} کسر شد!")
+    elif c_add:
+        amt = int(c_add.group(1))
+        c.execute("UPDATE users SET coin=coin+? WHERE user_id=?", (amt, target))
+        conn.commit()
+        bot.reply_to(m, f"💰 {amt} سکه به @{get_username(target)} اضافه شد!")
+    elif c_sub:
+        amt = int(c_sub.group(1))
+        c.execute("UPDATE users SET coin=coin-? WHERE user_id=?", (amt, target))
+        conn.commit()
+        bot.reply_to(m, f"💸 {amt} سکه از @{get_username(target)} کسر شد!")
+
+# —————————————————————————————————————————————
+# GOLD TICK
+@bot.message_handler(commands=['tik'])
+def cmd_tik(m):
     if not m.reply_to_message:
-        return bot.reply_to(m, "❌ ریپلای کنید روی کسی که می‌خواهید سکه بدهید.")
-    parts = m.text.strip().split()
-    if len(parts) != 2 or not parts[1].isdigit():
-        return bot.reply_to(m, "❌ فرمت صحیح: /give 100")
-    amt = int(parts[1])
-    sid, rid = m.from_user.id, m.reply_to_message.from_user.id
-    c.execute("SELECT coin FROM users WHERE user_id=?", (sid,))
-    if c.fetchone()[0] < amt:
-        return bot.reply_to(m, "❌ سکه کافی نیست!")
-    c.execute("UPDATE users SET coin=coin-? WHERE user_id=?", (amt, sid))
-    c.execute("UPDATE users SET coin=coin+? WHERE user_id=?", (amt, rid))
+        return
+    uid = m.from_user.id
+    target = m.reply_to_message.from_user.id
+    if not (uid == OWNER_ID or is_admin(uid)):
+        return
+    c.execute("UPDATE users SET gold_tick=1 WHERE user_id=?", (target,))
     conn.commit()
-    bot.reply_to(m, f"💸 @{get_username(sid)} → @{get_username(rid)} : {amt} سکه")
+    bot.reply_to(m, f"⚜️ نشان تایید طلایی به @{get_username(target)} داده شد!")
+
+@bot.message_handler(commands=['dtik'])
+def cmd_dtik(m):
+    if not m.reply_to_message:
+        return
+    uid = m.from_user.id
+    target = m.reply_to_message.from_user.id
+    if not (uid == OWNER_ID or is_admin(uid)):
+        return
+    c.execute("UPDATE users SET gold_tick=0 WHERE user_id=?", (target,))
+    conn.commit()
+    bot.reply_to(m, f"❌ نشان تایید طلایی از @{get_username(target)} برداشته شد.")
 
 # —————————————————————————————————————————————
 # ADMIN MANAGEMENT
@@ -471,7 +513,7 @@ def cmd_sectcreate(m):
         c.execute("INSERT INTO sects(name,owner_id) VALUES(?,?)", (name, uid))
         c.execute("UPDATE users SET sect=?,coin=coin-200 WHERE user_id=?", (name, uid))
         conn.commit()
-        bot.reply_to(m, f"🌀 فرقه `{name}` ساخته شد و ۲۰۰ سکه کسر گردید.", parse_mode="Markdown")
+        bot.reply_to(m, f"🌀 فرقه `{name}` ساخته شد و ۲۰۰ سکه کسر شد.", parse_mode="Markdown")
     except:
         bot.reply_to(m, "❌ این فرقه قبلاً وجود دارد!")
 
@@ -479,7 +521,7 @@ def cmd_sectcreate(m):
 @blocked_guard
 def cmd_sectinvite(m):
     if not m.reply_to_message:
-        return bot.reply_to(m, "❌ برای دعوت، ریپلای کنید.")
+        return bot.reply_to(m, "❌ ریپلای کنید برای دعوت.")
     inviter = m.from_user.id
     c.execute("SELECT sect FROM users WHERE user_id=?", (inviter,))
     row = c.fetchone()
@@ -492,7 +534,8 @@ def cmd_sectinvite(m):
         types.InlineKeyboardButton("❌ نمی‌خواهم", callback_data=f"sreject_{inviter}")
     )
     uname = m.reply_to_message.from_user.username
-    sent = bot.send_message(m.chat.id,
+    sent = bot.send_message(
+        m.chat.id,
         f"🌀 @{uname} به فرقه‌ی `{sect}` دعوت شد. می‌پذیری؟",
         reply_markup=kb, parse_mode="Markdown"
     )
@@ -510,11 +553,9 @@ def cb_sectinvite(call):
         sect = c.fetchone()[0]
         c.execute("UPDATE users SET sect=? WHERE user_id=?", (sect, res))
         conn.commit()
-        bot.edit_message_text(f"✅ خوش آمدی به فرقه‌ی `{sect}`!",
-                              call.message.chat.id, mid, parse_mode="Markdown")
+        bot.edit_message_text(f"✅ خوش آمدی به فرقه‌ی `{sect}`!", call.message.chat.id, mid, parse_mode="Markdown")
     else:
-        bot.edit_message_text("❌ دعوت رد شد.",
-                              call.message.chat.id, mid)
+        bot.edit_message_text("❌ دعوت رد شد.", call.message.chat.id, mid)
     del pending_sect_invites[mid]
 
 @bot.message_handler(commands=['sectleave'])
@@ -546,7 +587,7 @@ def cmd_sectdisband(m):
 @blocked_guard
 def cmd_dferghe(m):
     if not m.reply_to_message:
-        return bot.reply_to(m, "❌ برای اخراج، ریپلای کنید.")
+        return bot.reply_to(m, "❌ برای اخراج ریپلای کنید.")
     kicker = m.from_user.id
     victim = m.reply_to_message.from_user.id
     c.execute("SELECT name FROM sects WHERE owner_id=?", (kicker,))
@@ -583,16 +624,16 @@ def cmd_mee(m):
         return bot.reply_to(m, "❌ شما عضو هیچ فرقه‌ای نیستید!")
     sect = row[0]
     total = c.execute("SELECT COUNT(*) FROM users WHERE sect=?", (sect,)).fetchone()[0]
-    rank = next((i+1 for i,(s,_) in enumerate(sect_ranking_cache) if s==sect), "–")
+    rank_pos = next((i+1 for i,(s,_) in enumerate(sect_ranking_cache) if s==sect), "–")
     bot.reply_to(m,
         f"🌀 اطلاعات فرقه‌ی `{sect}`:\n"
         f"• تعداد اعضا: {total}\n"
-        f"• رتبه در گروه: {rank}\n", parse_mode="Markdown"
+        f"• رتبه در گروه: {rank_pos}\n", parse_mode="Markdown"
     )
 
 @bot.message_handler(commands=['block'])
 def cmd_block(m):
-    if not (m.from_user.id==OWNER_ID or is_admin(m.from_user.id)) or not m.reply_to_message:
+    if not (m.from_user.id == OWNER_ID or is_admin(m.from_user.id)) or not m.reply_to_message:
         return
     uid = m.reply_to_message.from_user.id
     c.execute("UPDATE users SET is_blocked=1 WHERE user_id=?", (uid,))
@@ -601,7 +642,7 @@ def cmd_block(m):
 
 @bot.message_handler(commands=['dblock'])
 def cmd_dblock(m):
-    if not (m.from_user.id==OWNER_ID or is_admin(m.from_user.id)) or not m.reply_to_message:
+    if not (m.from_user.id == OWNER_ID or is_admin(m.from_user.id)) or not m.reply_to_message:
         return
     uid = m.reply_to_message.from_user.id
     c.execute("UPDATE users SET is_blocked=0 WHERE user_id=?", (uid,))
@@ -649,7 +690,7 @@ def cmd_mut(m):
         bot.restrict_chat_member(
             chat_id=m.chat.id,
             user_id=m.reply_to_message.from_user.id,
-            until_date=int(time.time())+60,
+            until_date=int(time.time()) + 60,
             can_send_messages=False
         )
         c.execute("UPDATE users SET coin=coin-80 WHERE user_id=?", (uid,))
