@@ -20,43 +20,48 @@ app = Flask(__name__)
 @app.route("/")
 def ping():
     return "OK"
-threading.Thread(target=lambda: app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000))), daemon=True).start()
+threading.Thread(
+    target=lambda: app.run(host="0.0.0.0", port=int(os.environ.get("PORT",5000))),
+    daemon=True
+).start()
 
-# اتصال به دیتابیس
+# اتصال به دیتابیس اصلی
 conn = sqlite3.connect("data.db", check_same_thread=False)
-c = conn.cursor()
+# یک اتصال مجزا برای ترد رتبه‌بندی تا از اشتراک نشانگر جلوگیری شود
+conn_thread = sqlite3.connect("data.db", check_same_thread=False)
 
-# جدول کاربران
-c.execute('''
-CREATE TABLE IF NOT EXISTS users (
-    user_id      INTEGER PRIMARY KEY,
-    name         TEXT,
-    username     TEXT,
-    coin         INTEGER DEFAULT 180,
-    score        INTEGER DEFAULT 250,
-    gold_tick    INTEGER DEFAULT 0,
-    role         TEXT DEFAULT 'ممبر عادی 🧍',
-    birthdate    TEXT,
-    partner_id   INTEGER,
-    child_of     INTEGER,
-    pet          TEXT,
-    custom_emoji TEXT,
-    sect         TEXT,
-    messages     INTEGER DEFAULT 0,
-    is_admin     INTEGER DEFAULT 0,
-    is_blocked   INTEGER DEFAULT 0
-)
-''')
-conn.commit()
+# تابعی برای ساخت جدول اگر وجود نداشت
+def init_db(connection):
+    cur = connection.cursor()
+    if connection is conn:
+        cur.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id      INTEGER PRIMARY KEY,
+            name         TEXT,
+            username     TEXT,
+            coin         INTEGER DEFAULT 180,
+            score        INTEGER DEFAULT 250,
+            gold_tick    INTEGER DEFAULT 0,
+            role         TEXT DEFAULT 'ممبر عادی 🧍',
+            birthdate    TEXT,
+            partner_id   INTEGER,
+            child_of     INTEGER,
+            pet          TEXT,
+            custom_emoji TEXT,
+            sect         TEXT,
+            messages     INTEGER DEFAULT 0,
+            is_admin     INTEGER DEFAULT 0,
+            is_blocked   INTEGER DEFAULT 0
+        )''')
+        cur.execute('''
+        CREATE TABLE IF NOT EXISTS sects (
+            name     TEXT PRIMARY KEY,
+            owner_id INTEGER
+        )''')
+    connection.commit()
 
-# جدول فرقه‌ها
-c.execute('''
-CREATE TABLE IF NOT EXISTS sects (
-    name     TEXT PRIMARY KEY,
-    owner_id INTEGER
-)
-''')
-conn.commit()
+init_db(conn)
+init_db(conn_thread)
 
 # مقام‌های ربات
 ranks = {
@@ -74,43 +79,52 @@ pending_sect_invites = {}
 sect_ranking_cache = []
 
 # —————————————————————————————————————————————
-# توابع کمکی
+# توابع کمکی عمومی
 def add_user(uid, name, uname):
-    c.execute("SELECT 1 FROM users WHERE user_id=?", (uid,))
-    if not c.fetchone():
-        c.execute("INSERT INTO users(user_id,name,username) VALUES(?,?,?)", (uid, name, uname))
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM users WHERE user_id=?", (uid,))
+    if not cur.fetchone():
+        cur.execute(
+            "INSERT INTO users(user_id,name,username) VALUES(?,?,?)",
+            (uid, name, uname)
+        )
         conn.commit()
 
 def get_username(uid):
-    c.execute("SELECT username FROM users WHERE user_id=?", (uid,))
-    r = c.fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT username FROM users WHERE user_id=?", (uid,))
+    r = cur.fetchone()
     return r[0] if r and r[0] else "ندارد ❌"
 
 def get_rank(score):
-    if score < 500: return "تازه‌کار 👶"
-    if score < 1000: return "حرفه‌ای 🔥"
-    if score < 2000: return "استاد 🌟"
-    if score < 4000: return "قهرمان 🏆"
-    if score < 7000: return "افسانه‌ای 🐉"
-    if score < 10000:return "بی‌نظیر 💎"
+    if score < 500:   return "تازه‌کار 👶"
+    if score < 1000:  return "حرفه‌ای 🔥"
+    if score < 2000:  return "استاد 🌟"
+    if score < 4000:  return "قهرمان 🏆"
+    if score < 7000:  return "افسانه‌ای 🐉"
+    if score < 10000: return "بی‌نظیر 💎"
     return "اسطوره 🚀"
 
 def is_admin(uid):
-    if uid == OWNER_ID: return True
-    c.execute("SELECT is_admin FROM users WHERE user_id=?", (uid,))
-    r = c.fetchone()
+    if uid == OWNER_ID:
+        return True
+    cur = conn.cursor()
+    cur.execute("SELECT is_admin FROM users WHERE user_id=?", (uid,))
+    r = cur.fetchone()
     return bool(r and r[0] == 1)
 
 def check_blocked(uid):
-    c.execute("SELECT is_blocked FROM users WHERE user_id=?", (uid,))
-    r = c.fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT is_blocked FROM users WHERE user_id=?", (uid,))
+    r = cur.fetchone()
     return bool(r and r[0] == 1)
 
 def check_gold_tick(uid):
-    c.execute("SELECT score,gold_tick FROM users WHERE user_id=?", (uid,))
-    r = c.fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT score,gold_tick FROM users WHERE user_id=?", (uid,))
+    r = cur.fetchone()
     if r and r[0] >= 5000 and r[1] == 0:
-        c.execute("UPDATE users SET gold_tick=1 WHERE user_id=?", (uid,))
+        cur.execute("UPDATE users SET gold_tick=1 WHERE user_id=?", (uid,))
         conn.commit()
 
 def blocked_guard(f):
@@ -122,15 +136,17 @@ def blocked_guard(f):
         return f(m)
     return wrapper
 
-# به‌روزرسانی رتبه‌بندی فرقه‌ها هر ساعت
+# —————————————————————————————————————————————
+# به‌روزرسانی رتبه‌بندی فرقه‌ها در ترد جداگانه
 def update_sect_ranking():
     global sect_ranking_cache
+    cur_thread = conn_thread.cursor()
     while True:
-        sect_ranking_cache = c.execute(
-            "SELECT sect,COUNT(*) cnt FROM users "
-            "WHERE sect IS NOT NULL GROUP BY sect "
-            "ORDER BY cnt DESC LIMIT 10"
-        ).fetchall()
+        cur_thread.execute(
+            "SELECT sect,COUNT(*) cnt FROM users WHERE sect IS NOT NULL "
+            "GROUP BY sect ORDER BY cnt DESC LIMIT 10"
+        )
+        sect_ranking_cache = cur_thread.fetchall()
         time.sleep(3600)
 
 threading.Thread(target=update_sect_ranking, daemon=True).start()
@@ -187,14 +203,14 @@ def cmd_my(m):
     add_user(target,
              m.reply_to_message.from_user.first_name if m.reply_to_message else m.from_user.first_name,
              get_username(target))
-    c.execute("SELECT * FROM users WHERE user_id=?", (target,))
-    d = c.fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM users WHERE user_id=?", (target,))
+    d = cur.fetchone()
     if not d:
         return bot.reply_to(m, "❌ خطا در بازیابی پروفایل.")
 
-    # فرزندان
-    c.execute("SELECT username FROM users WHERE child_of=?", (target,))
-    children = [f"@{r[0]}" for r in c.fetchall()]
+    cur.execute("SELECT username FROM users WHERE child_of=?", (target,))
+    children = [f"@{r[0]}" for r in cur.fetchall()]
     children_txt = ", ".join(children)
 
     text = f'''
@@ -232,14 +248,15 @@ def cmd_my(m):
 @bot.message_handler(commands=['old'])
 @blocked_guard
 def cmd_old(m):
-    m0 = re.match(r'^/old (\d{4}/\d{1,2}/\d{1,2})$', m.text.strip())
+    m0=re.match(r'^/old (\d{4}/\d{1,2}/\d{1,2})$', m.text.strip())
     if not m0:
         return bot.reply_to(m, "❌ فرمت صحیح: /old 1379/1/11")
     bd, uid = m0.group(1), m.from_user.id
-    c.execute("SELECT coin FROM users WHERE user_id=?", (uid,))
-    if (row := c.fetchone()) is None or row[0] < 40:
+    cur = conn.cursor()
+    cur.execute("SELECT coin FROM users WHERE user_id=?", (uid,))
+    if (row:=cur.fetchone()) is None or row[0] < 40:
         return bot.reply_to(m, "❌ سکه کافی نیست!")
-    c.execute("UPDATE users SET birthdate=?,coin=coin-40 WHERE user_id=?", (bd, uid))
+    cur.execute("UPDATE users SET birthdate=?,coin=coin-40 WHERE user_id=?", (bd, uid))
     conn.commit()
     bot.reply_to(m, "🎂 ثبت تولد انجام شد و ۴۰ سکه کسر گردید.")
 
@@ -252,7 +269,7 @@ def cmd_love(m):
         return bot.reply_to(m, "❌ ریپلای کنید روی پیام طرف مقابل.")
     rid, sid = m.from_user.id, m.reply_to_message.from_user.id
     if rid == sid:
-        return bot.reply_to(m, "❌ نمی‌توانید با خودتان ازدواج کنید!")
+        return bot.reply_to(m, "❌ غیرمعتبر!")
     add_user(rid, m.from_user.first_name, m.from_user.username or "")
     add_user(sid, m.reply_to_message.from_user.first_name, m.reply_to_message.from_user.username or "")
     kb = types.InlineKeyboardMarkup()
@@ -260,43 +277,48 @@ def cmd_love(m):
         types.InlineKeyboardButton("💖 قبول می‌کنم", callback_data=f"accept_{rid}"),
         types.InlineKeyboardButton("💔 قبول نمی‌کنم", callback_data=f"reject_{rid}")
     )
-    txt = f"💌 @{m.from_user.username} درخواست ازدواج به @{m.reply_to_message.from_user.username} داد!\nقبول می‌کنی؟"
-    sent = bot.send_message(m.chat.id, txt, reply_markup=kb)
+    sent = bot.send_message(
+        m.chat.id,
+        f"💌 @{m.from_user.username} عاشق @{m.reply_to_message.from_user.username} شد!\nقبول می‌کنی؟",
+        reply_markup=kb
+    )
     pending_loves[sent.message_id] = rid
 
 @bot.callback_query_handler(lambda call: call.data.startswith(("accept_","reject_")))
 def cb_love(call):
     mid = call.message.message_id
     if mid not in pending_loves:
-        return bot.answer_callback_query(call.id, "❌ درخواست منقضی شد.")
-    rid = pending_loves[mid]; sid = call.from_user.id
+        return bot.answer_callback_query(call.id, "❌ منقضی شد.")
+    rid, sid = pending_loves[mid], call.from_user.id
+    cur = conn.cursor()
     if call.data.startswith("accept_"):
-        c.execute("SELECT coin FROM users WHERE user_id=?", (rid,))
-        if c.fetchone()[0] < 40:
+        cur.execute("SELECT coin FROM users WHERE user_id=?", (rid,))
+        if cur.fetchone()[0] < 40:
             bot.edit_message_text("❌ سکه کافی نیست!", call.message.chat.id, mid)
             del pending_loves[mid]
             return
-        c.execute("UPDATE users SET partner_id=?,coin=coin-40 WHERE user_id=?", (sid, rid))
-        c.execute("UPDATE users SET partner_id=? WHERE user_id=?", (rid, sid))
+        cur.execute("UPDATE users SET partner_id=?,coin=coin-40 WHERE user_id=?", (sid, rid))
+        cur.execute("UPDATE users SET partner_id=? WHERE user_id=?", (rid, sid))
         conn.commit()
         bot.edit_message_text("💒 ازدواج ثبت شد! مبارک باشید! 🎉", call.message.chat.id, mid)
         bot.send_message(call.message.chat.id, f"🎊 @{get_username(rid)} و @{get_username(sid)} زوج شدند! 💘")
     else:
-        bot.edit_message_text("💔 درخواست رد شد.", call.message.chat.id, mid)
+        bot.edit_message_text("💔 رد شد.", call.message.chat.id, mid)
     del pending_loves[mid]
 
 @bot.message_handler(commands=['dlove'])
 @blocked_guard
 def cmd_dlove(m):
     uid = m.from_user.id
-    c.execute("SELECT partner_id FROM users WHERE user_id=?", (uid,))
-    row = c.fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT partner_id FROM users WHERE user_id=?", (uid,))
+    row = cur.fetchone()
     if not row or not row[0]:
-        return bot.reply_to(m, "❌ شما ازدواج نکرده‌اید.")
+        return bot.reply_to(m, "❌ در رابطه نیستید.")
     pid = row[0]
-    c.execute("UPDATE users SET partner_id=NULL WHERE user_id IN(?,?)", (uid, pid))
+    cur.execute("UPDATE users SET partner_id=NULL WHERE user_id IN(?,?)", (uid, pid))
     conn.commit()
-    bot.send_message(m.chat.id, f"💔 @{get_username(uid)} و @{get_username(pid)} از هم جدا شدند. 😢")
+    bot.send_message(m.chat.id, f"💔 @{get_username(uid)} و @{get_username(pid)} جدا شدند.")
 
 # —————————————————————————————————————————————
 # PET SYSTEM
@@ -305,25 +327,27 @@ def cmd_dlove(m):
 def cmd_pet(m):
     parts = m.text.strip().split(maxsplit=1)
     if len(parts) != 2:
-        return bot.reply_to(m, "❌ فرمت صحیح: /pet نام‌حیوان")
+        return bot.reply_to(m, "❌ /pet نام‌حیوان")
     pet, uid = parts[1], m.from_user.id
-    c.execute("SELECT coin FROM users WHERE user_id=?", (uid,))
-    if c.fetchone()[0] < 40:
+    cur = conn.cursor()
+    cur.execute("SELECT coin FROM users WHERE user_id=?", (uid,))
+    if cur.fetchone()[0] < 40:
         return bot.reply_to(m, "❌ سکه کافی نیست!")
-    c.execute("UPDATE users SET pet=?,coin=coin-40 WHERE user_id=?", (pet, uid))
+    cur.execute("UPDATE users SET pet=?,coin=coin-40 WHERE user_id=?", (pet, uid))
     conn.commit()
-    bot.reply_to(m, f"🐾 پت `{pet}` ثبت شد و ۴۰ سکه کسر گردید.", parse_mode="Markdown")
+    bot.reply_to(m, f"🐾 `{pet}` ثبت شد و ۴۰ سکه کسر گردید.", parse_mode="Markdown")
 
 @bot.message_handler(commands=['unpet'])
 @blocked_guard
 def cmd_unpet(m):
     uid = m.from_user.id
-    c.execute("SELECT pet FROM users WHERE user_id=?", (uid,))
-    if not c.fetchone()[0]:
-        return bot.reply_to(m, "❌ شما هیچ پت ندارید!")
-    c.execute("UPDATE users SET pet=NULL WHERE user_id=?", (uid,))
+    cur = conn.cursor()
+    cur.execute("SELECT pet FROM users WHERE user_id=?", (uid,))
+    if not cur.fetchone()[0]:
+        return bot.reply_to(m, "❌ ندارید!")
+    cur.execute("UPDATE users SET pet=NULL WHERE user_id=?", (uid,))
     conn.commit()
-    bot.reply_to(m, "🐾 پت شما حذف شد.")
+    bot.reply_to(m, "🐾 حذف شد.")
 
 # —————————————————————————————————————————————
 # CHILD SYSTEM
@@ -331,7 +355,7 @@ def cmd_unpet(m):
 @blocked_guard
 def cmd_child(m):
     if not m.reply_to_message:
-        return bot.reply_to(m, "❌ برای درخواست فرزند ریپلای کنید.")
+        return bot.reply_to(m, "❌ ریپلای کنید.")
     rid, sid = m.from_user.id, m.reply_to_message.from_user.id
     if rid == sid:
         return bot.reply_to(m, "❌ غیرمعتبر!")
@@ -342,43 +366,48 @@ def cmd_child(m):
         types.InlineKeyboardButton("👶 قبول می‌کنم", callback_data=f"caccept_{rid}"),
         types.InlineKeyboardButton("❌ قبول نمی‌کنم", callback_data=f"creject_{rid}")
     )
-    txt = f"👶 @{m.from_user.username} درخواست فرزند @{m.reply_to_message.from_user.username} داد!\nقبول می‌کنی؟"
-    sent = bot.send_message(m.chat.id, txt, reply_markup=kb)
+    sent = bot.send_message(
+        m.chat.id,
+        f"👶 @{m.from_user.username} درخواست فرزند @{m.reply_to_message.from_user.username} داد!\nقبول می‌کنی؟",
+        reply_markup=kb
+    )
     pending_children[sent.message_id] = rid
 
 @bot.callback_query_handler(lambda call: call.data.startswith(("caccept_","creject_")))
 def cb_child(call):
     mid = call.message.message_id
     if mid not in pending_children:
-        return bot.answer_callback_query(call.id, "❌ درخواست منقضی شد.")
+        return bot.answer_callback_query(call.id, "❌ منقضی شد.")
     rid, sid = pending_children[mid], call.from_user.id
+    cur = conn.cursor()
     if call.data.startswith("caccept_"):
-        c.execute("SELECT coin FROM users WHERE user_id=?", (rid,))
-        if c.fetchone()[0] < 40:
+        cur.execute("SELECT coin FROM users WHERE user_id=?", (rid,))
+        if cur.fetchone()[0] < 40:
             bot.edit_message_text("❌ سکه کافی نیست!", call.message.chat.id, mid)
             del pending_children[mid]
             return
-        c.execute("UPDATE users SET child_of=?,coin=coin-40 WHERE user_id=?", (sid, rid))
+        cur.execute("UPDATE users SET child_of=?,coin=coin-40 WHERE user_id=?", (sid, rid))
         conn.commit()
-        bot.edit_message_text("👶 فرزند پذیرفته شد!", call.message.chat.id, mid)
+        bot.edit_message_text("👶 پذیرفته شد!", call.message.chat.id, mid)
         bot.send_message(call.message.chat.id, f"🎉 @{get_username(rid)} فرزند @{get_username(sid)} شد!")
     else:
-        bot.edit_message_text("❌ درخواست رد شد.", call.message.chat.id, mid)
+        bot.edit_message_text("❌ رد شد.", call.message.chat.id, mid)
     del pending_children[mid]
 
 @bot.message_handler(commands=['dchild'])
 @blocked_guard
 def cmd_dchild(m):
     if not m.reply_to_message:
-        return bot.reply_to(m, "❌ برای حذف فرزند ریپلای کنید.")
+        return bot.reply_to(m, "❌ ریپلای کنید.")
     victim, uid = m.reply_to_message.from_user.id, m.from_user.id
-    c.execute("SELECT child_of FROM users WHERE user_id=?", (victim,))
-    row = c.fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT child_of FROM users WHERE user_id=?", (victim,))
+    row = cur.fetchone()
     if not row or row[0] != uid:
         return bot.reply_to(m, "❌ رابطه‌ای وجود ندارد.")
-    c.execute("UPDATE users SET child_of=NULL WHERE user_id=?", (victim,))
+    cur.execute("UPDATE users SET child_of=NULL WHERE user_id=?", (victim,))
     conn.commit()
-    bot.reply_to(m, f"🚼 @{get_username(victim)} از خانواده حذف شد.")
+    bot.reply_to(m, f"🚼 @{get_username(victim)} حذف شد.")
 
 # —————————————————————————————————————————————
 # EMOJI SYSTEM
@@ -387,25 +416,27 @@ def cmd_dchild(m):
 def cmd_emoji(m):
     parts = m.text.strip().split(maxsplit=1)
     if len(parts) != 2:
-        return bot.reply_to(m, "❌ فرمت صحیح: /emoji 😎")
+        return bot.reply_to(m, "❌ /emoji 😎")
     em, uid = parts[1], m.from_user.id
-    c.execute("SELECT coin FROM users WHERE user_id=?", (uid,))
-    if c.fetchone()[0] < 50:
+    cur = conn.cursor()
+    cur.execute("SELECT coin FROM users WHERE user_id=?", (uid,))
+    if cur.fetchone()[0] < 50:
         return bot.reply_to(m, "❌ سکه کافی نیست!")
-    c.execute("UPDATE users SET custom_emoji=?,coin=coin-50 WHERE user_id=?", (em, uid))
+    cur.execute("UPDATE users SET custom_emoji=?,coin=coin-50 WHERE user_id=?", (em, uid))
     conn.commit()
-    bot.reply_to(m, f"🎭 ایموجی `{em}` ثبت شد و ۵۰ سکه کسر گردید.", parse_mode="Markdown")
+    bot.reply_to(m, f"🎭 `{em}` ثبت شد! -۵۰ سکه", parse_mode="Markdown")
 
 @bot.message_handler(commands=['reemoji'])
 @blocked_guard
 def cmd_reemoji(m):
     uid = m.from_user.id
-    c.execute("SELECT custom_emoji FROM users WHERE user_id=?", (uid,))
-    if not c.fetchone()[0]:
-        return bot.reply_to(m, "❌ خبری از ایموجی نیست!")
-    c.execute("UPDATE users SET custom_emoji=NULL WHERE user_id=?", (uid,))
+    cur = conn.cursor()
+    cur.execute("SELECT custom_emoji FROM users WHERE user_id=?", (uid,))
+    if not cur.fetchone()[0]:
+        return bot.reply_to(m, "❌ نداری!")
+    cur.execute("UPDATE users SET custom_emoji=NULL WHERE user_id=?", (uid,))
     conn.commit()
-    bot.reply_to(m, "🎭 ایموجی شما حذف شد.")
+    bot.reply_to(m, "🎭 حذف شد.")
 
 # —————————————————————————————————————————————
 # GIVE: انتقال سکه
@@ -413,17 +444,18 @@ def cmd_reemoji(m):
 @blocked_guard
 def cmd_give(m):
     if not m.reply_to_message:
-        return bot.reply_to(m, "❌ برای انتقال ریپلای کنید.")
+        return bot.reply_to(m, "❌ ریپلای کنید.")
     parts = m.text.strip().split()
     if len(parts) != 2 or not parts[1].isdigit():
-        return bot.reply_to(m, "❌ فرمت صحیح: /give 100")
+        return bot.reply_to(m, "❌ /give 100")
     amt = int(parts[1])
     sid, rid = m.from_user.id, m.reply_to_message.from_user.id
-    c.execute("SELECT coin FROM users WHERE user_id=?", (sid,))
-    if c.fetchone()[0] < amt:
+    cur = conn.cursor()
+    cur.execute("SELECT coin FROM users WHERE user_id=?", (sid,))
+    if cur.fetchone()[0] < amt:
         return bot.reply_to(m, "❌ سکه کافی نیست!")
-    c.execute("UPDATE users SET coin=coin-? WHERE user_id=?", (amt, sid))
-    c.execute("UPDATE users SET coin=coin+? WHERE user_id=?", (amt, rid))
+    cur.execute("UPDATE users SET coin=coin-? WHERE user_id=?", (amt, sid))
+    cur.execute("UPDATE users SET coin=coin+? WHERE user_id=?", (amt, rid))
     conn.commit()
     bot.reply_to(m, f"💸 @{get_username(sid)} → @{get_username(rid)} : {amt} سکه")
 
@@ -436,27 +468,28 @@ def control_points(m):
         return
     target = m.reply_to_message.from_user.id
     text = m.text.strip()
-    # امتیاز
+    cur = conn.cursor()
+    # امتیاز +500 / -500
     if m0 := re.match(r'^\+ (\d+)$', text):
         amt = int(m0.group(1))
-        c.execute("UPDATE users SET score=score+? WHERE user_id=?", (amt, target))
+        cur.execute("UPDATE users SET score=score+? WHERE user_id=?", (amt, target))
         conn.commit()
         check_gold_tick(target)
         bot.reply_to(m, f"🎉 {amt} امتیاز به @{get_username(target)} اضافه شد!")
     elif m0 := re.match(r'^\- (\d+)$', text):
         amt = int(m0.group(1))
-        c.execute("UPDATE users SET score=score-? WHERE user_id=?", (amt, target))
+        cur.execute("UPDATE users SET score=score-? WHERE user_id=?", (amt, target))
         conn.commit()
         bot.reply_to(m, f"💔 {amt} امتیاز از @{get_username(target)} کسر شد!")
-    # سکه
+    # سکه +100 🪙 / -100 🪙
     elif m0 := re.match(r'^\+ (\d+)\s+🪙$', text):
         amt = int(m0.group(1))
-        c.execute("UPDATE users SET coin=coin+? WHERE user_id=?", (amt, target))
+        cur.execute("UPDATE users SET coin=coin+? WHERE user_id=?", (amt, target))
         conn.commit()
         bot.reply_to(m, f"💰 {amt} سکه به @{get_username(target)} اضافه شد!")
     elif m0 := re.match(r'^\- (\d+)\s+🪙$', text):
         amt = int(m0.group(1))
-        c.execute("UPDATE users SET coin=coin-? WHERE user_id=?", (amt, target))
+        cur.execute("UPDATE users SET coin=coin-? WHERE user_id=?", (amt, target))
         conn.commit()
         bot.reply_to(m, f"💸 {amt} سکه از @{get_username(target)} کسر شد!")
 
@@ -470,9 +503,10 @@ def cmd_tik(m):
     target = m.reply_to_message.from_user.id
     if not(uid == OWNER_ID or is_admin(uid)):
         return
-    c.execute("UPDATE users SET gold_tick=1 WHERE user_id=?", (target,))
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET gold_tick=1 WHERE user_id=?", (target,))
     conn.commit()
-    bot.reply_to(m, f"⚜️ نشان تایید طلایی به @{get_username(target)} داده شد!")
+    bot.reply_to(m, f"⚜️ نشان طلایی به @{get_username(target)} داده شد!")
 
 @bot.message_handler(commands=['dtik'])
 def cmd_dtik(m):
@@ -482,9 +516,10 @@ def cmd_dtik(m):
     target = m.reply_to_message.from_user.id
     if not(uid == OWNER_ID or is_admin(uid)):
         return
-    c.execute("UPDATE users SET gold_tick=0 WHERE user_id=?", (target,))
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET gold_tick=0 WHERE user_id=?", (target,))
     conn.commit()
-    bot.reply_to(m, f"❌ نشان تایید طلایی از @{get_username(target)} برداشته شد!")
+    bot.reply_to(m, f"❌ نشان طلایی از @{get_username(target)} برداشته شد!")
 
 # —————————————————————————————————————————————
 # MESSAGE COUNTER & BONUS
@@ -493,12 +528,13 @@ def cmd_dtik(m):
 def on_any_message(m):
     uid = m.from_user.id
     add_user(uid, m.from_user.first_name, m.from_user.username or "")
-    c.execute("UPDATE users SET messages=messages+1 WHERE user_id=?", (uid,))
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET messages=messages+1 WHERE user_id=?", (uid,))
     conn.commit()
-    c.execute("SELECT messages FROM users WHERE user_id=?", (uid,))
-    cnt = c.fetchone()[0]
+    cur.execute("SELECT messages FROM users WHERE user_id=?", (uid,))
+    cnt = cur.fetchone()[0]
     if cnt % 100 == 0:
-        c.execute("UPDATE users SET score=score+200, coin=coin+30 WHERE user_id=?", (uid,))
+        cur.execute("UPDATE users SET score=score+200, coin=coin+30 WHERE user_id=?", (uid,))
         conn.commit()
         bot.send_message(
             m.chat.id,
