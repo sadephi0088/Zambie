@@ -15,34 +15,26 @@ anti_link_enabled = set()
 group_lock_enabled = set()
 tagging = False  # کنترل تگ کردن
 
-# دیتابیس ذخیره اعضای گروه
+دیتابیس ذخیره اعضای گروه
+
 conn = sqlite3.connect("members.db", check_same_thread=False)
 cur = conn.cursor()
 cur.execute("CREATE TABLE IF NOT EXISTS members (chat_id INTEGER, user_id INTEGER, name TEXT)")
 conn.commit()
 
-# جدول یادگیری کلمات و پاسخ‌ها
-cur.execute("""
-CREATE TABLE IF NOT EXISTS learned (
-    keyword TEXT PRIMARY KEY,
-    answer TEXT
-)
-""")
+def save_member(chat_id, user):
+cur.execute("INSERT OR IGNORE INTO members (chat_id, user_id, name) VALUES (?, ?, ?)",
+(chat_id, user.id, user.first_name))
 conn.commit()
 
-def save_member(chat_id, user):
-    cur.execute("INSERT OR IGNORE INTO members (chat_id, user_id, name) VALUES (?, ?, ?)",
-                (chat_id, user.id, user.first_name))
-    conn.commit()
-
 def remove_member(chat_id, user_id):
-    cur.execute("DELETE FROM members WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
-    conn.commit()
+cur.execute("DELETE FROM members WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
+conn.commit()
 
 doshman_msgs = [
-    "خفه شو دیگه🤣", "سیکتر کن😅", "نبینمت اسکول😂", "برو بچه کیونی🤣🤣", "سگ پدر😂",
-    "روانی ریقو🤣", "شاشو😂", "از اینجا تا اونجا توی کو‌..نت😂", "ریدم دهنت...😂",
-    "گمشو دیگه بهت خندیدم پرو شدی", "سگو کی باشی😂😂😅", "اسکول یه وری", "ریدم تو قیافت", "شاشیدم دهنت😂"
+"خفه شو دیگه🤣", "سیکتر کن😅", "نبینمت اسکول😂", "برو بچه کیونی🤣🤣", "سگ پدر😂",
+"روانی ریقو🤣", "شاشو😂", "از اینجا تا اونجا توی کو‌..نت😂", "ریدم دهنت...😂",
+"گمشو دیگه بهت خندیدم پرو شدی", "سگو کی باشی😂😂😅", "اسکول یه وری", "ریدم تو قیافت", "شاشیدم دهنت😂"
 ]
 
 help_text = """⚔️ 《 راهنمای ربات محافظتی - نسخه 1.0 》 ⚔️
@@ -52,15 +44,15 @@ help_text = """⚔️ 《 راهنمای ربات محافظتی - نسخه 1.0 
 2️⃣ /spam "متن شما" "عدد"
 3️⃣ /doshman "نابود کردن دشمنان"
 4️⃣ /mutee "سکوت کاربر-دشمن"
-5️⃣ /sik "حذف کاربر از گروه" 
+5️⃣ /sik "حذف کاربر از گروه"
 ——————————————————————
 ⚔️ دستورات واکنش به کاربران:👤
-6️⃣ /idd "در آوردن اطلاعات فرد" 
-7️⃣ /m "معرفی ربات محافظتی به کاربر"  
+6️⃣ /idd "در آوردن اطلاعات فرد"
+7️⃣ /m "معرفی ربات محافظتی به کاربر"
 8️⃣ /tagg "صدا زدن تمامی افراد گروه"
 ——————————————————————
 🔒 دستورات مدیریت گروه:👨‍💻
-9️⃣ /zedlink "فعالسازی قفل لینک"  
+9️⃣ /zedlink "فعالسازی قفل لینک"
 🔟 /pinn "پین کردن پیام"
 1️⃣1️⃣ /ghofle "قفل کامل گروه"
 1️⃣2️⃣ /del "پاک کردن پیام‌ها"
@@ -68,307 +60,329 @@ help_text = """⚔️ 《 راهنمای ربات محافظتی - نسخه 1.0 
 🏷️ سایر دستورات:👾
 1️⃣3️⃣ /adminn "افزودن مدیر ربات"
 1️⃣4️⃣ /bgo "حرف‌زدن با من"
-1️⃣5️⃣ /set "یادگیری پاسخ جدید"
-1️⃣6️⃣ /dset "حذف پاسخ یادگرفته شده"
 ——————————————————————
-⚠️ توجه:  
+⚠️ توجه:
 تمام دستورات فقط توسط مالک و مدیران ربات قابل اجراست.
 برای لغو دستورات، ابتدای همان دستور بنویسید "d"
 """
 
 def is_admin(user_id):
-    return user_id in ADMINS
+return user_id in ADMINS
 
 @bot.message_handler(commands=['help'])
 def send_help(message):
-    if is_admin(message.from_user.id):
-        bot.reply_to(message, help_text)
+if is_admin(message.from_user.id):
+bot.reply_to(message, help_text)
 
 @bot.message_handler(commands=['d'])
 def d_handler(message):
-    if not is_admin(message.from_user.id): return
-    text = message.text[3:].strip()
-    if text:
-        try: bot.delete_message(message.chat.id, message.message_id)
-        except: pass
-        if message.reply_to_message:
-            bot.send_message(message.chat.id, text, reply_to_message_id=message.reply_to_message.message_id)
-        else:
-            bot.send_message(message.chat.id, text)
-    else:
-        bot.reply_to(message, "❌ مثال: `/d سلام`", parse_mode='Markdown')
+if not is_admin(message.from_user.id): return
+text = message.text[3:].strip()
+if text:
+try: bot.delete_message(message.chat.id, message.message_id)
+except: pass
+if message.reply_to_message:
+bot.send_message(message.chat.id, text, reply_to_message_id=message.reply_to_message.message_id)
+else:
+bot.send_message(message.chat.id, text)
+else:
+bot.reply_to(message, "❌ مثال: /d سلام", parse_mode='Markdown')
 
 @bot.message_handler(commands=['spam'])
 def spam_handler(message):
-    if not is_admin(message.from_user.id): return
-    try:
-        _, count, text = message.text.split(" ", 2)
-        count = int(count)
-        if count > 100:
-            return bot.reply_to(message, "❌ حداکثر 100 بار.")
-        for _ in range(count):
-            bot.send_message(message.chat.id, text)
-            time.sleep(0.3)
-    except:
-        bot.reply_to(message, "❌ مثال: `/spam 3 سلام`", parse_mode='Markdown')
+if not is_admin(message.from_user.id): return
+try:
+_, count, text = message.text.split(" ", 2)
+count = int(count)
+if count > 100:
+return bot.reply_to(message, "❌ حداکثر 100 بار.")
+for _ in range(count):
+bot.send_message(message.chat.id, text)
+time.sleep(0.3)
+except:
+bot.reply_to(message, "❌ مثال: /spam 3 سلام", parse_mode='Markdown')
 
 @bot.message_handler(commands=['doshman'])
 def doshman_on(message):
-    if is_admin(message.from_user.id) and message.reply_to_message:
-        doshman_users.add(message.reply_to_message.from_user.id)
-        bot.reply_to(message, "☠️ دشمن فعال شد.")
+if is_admin(message.from_user.id) and message.reply_to_message:
+doshman_users.add(message.reply_to_message.from_user.id)
+bot.reply_to(message, "☠️ دشمن فعال شد.")
 
 @bot.message_handler(commands=['ddoshman'])
 def doshman_off(message):
-    if is_admin(message.from_user.id) and message.reply_to_message:
-        doshman_users.discard(message.reply_to_message.from_user.id)
-        bot.reply_to(message, "✅ دشمن غیرفعال شد.")
+if is_admin(message.from_user.id) and message.reply_to_message:
+doshman_users.discard(message.reply_to_message.from_user.id)
+bot.reply_to(message, "✅ دشمن غیرفعال شد.")
 
 @bot.message_handler(func=lambda m: m.from_user.id in doshman_users)
 def reply_doshman(message):
-    text = doshman_msgs[int(time.time()*1000) % len(doshman_msgs)]
-    bot.reply_to(message, text)
+text = doshman_msgs[int(time.time()*1000) % len(doshman_msgs)]
+bot.reply_to(message, text)
 
 @bot.message_handler(commands=['mutee'])
 def mutee(message):
-    if is_admin(message.from_user.id) and message.reply_to_message:
-        bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=False)
-        bot.reply_to(message, "🔇 کاربر سکوت شد.")
+if is_admin(message.from_user.id) and message.reply_to_message:
+bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=False)
+bot.reply_to(message, "🔇 کاربر سکوت شد.")
 
 @bot.message_handler(commands=['dmutee'])
 def unmutee(message):
-    if is_admin(message.from_user.id) and message.reply_to_message:
-        bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=True)
-        bot.reply_to(message, "🔊 سکوت برداشته شد.")
+if is_admin(message.from_user.id) and message.reply_to_message:
+bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=True)
+bot.reply_to(message, "🔊 سکوت برداشته شد.")
 
 @bot.message_handler(commands=['sik'])
 def ban_user(message):
-    if is_admin(message.from_user.id) and message.reply_to_message:
-        bot.ban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
-        bot.reply_to(message, "🚫 کاربر حذف شد.")
+if is_admin(message.from_user.id) and message.reply_to_message:
+bot.ban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
+bot.reply_to(message, "🚫 کاربر حذف شد.")
 
 @bot.message_handler(commands=['dsik'])
 def unban_user(message):
-    if is_admin(message.from_user.id) and message.reply_to_message:
-        bot.unban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
-        bot.reply_to(message, "✅ از لیست بن‌شدگان حذف شد.")
+if is_admin(message.from_user.id) and message.reply_to_message:
+bot.unban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
+bot.reply_to(message, "✅ از لیست بن‌شدگان حذف شد.")
 
 @bot.message_handler(commands=['idd'])
 def id_info(message):
-    if is_admin(message.from_user.id) and message.reply_to_message:
-        u = message.reply_to_message.from_user
-        text = f"👤 نام: {u.first_name}\n🆔 آیدی عددی: `{u.id}`\n📎 یوزرنیم: @{u.username if u.username else 'ندارد'}"
-        bot.reply_to(message, text, parse_mode='Markdown')
+if is_admin(message.from_user.id) and message.reply_to_message:
+u = message.reply_to_message.from_user
+text = f"👤 نام: {u.first_name}\n🆔 آیدی عددی: {u.id}\n📎 یوزرنیم: @{u.username if u.username else 'ندارد'}"
+bot.reply_to(message, text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['m'])
 def introduce_me(message):
-    if is_admin(message.from_user.id) and message.reply_to_message:
-        txt = "🛡️ من دستیار محافظتی اختصاصی هستم...\nهر تهدیدی، یعنی اعلام جنگ با من!\n#محافظ_شخصی"
-        bot.send_message(message.chat.id, txt, reply_to_message_id=message.reply_to_message.message_id)
+if is_admin(message.from_user.id) and message.reply_to_message:
+txt = "🛡️ من دستیار محافظتی اختصاصی هستم...\nهر تهدیدی، یعنی اعلام جنگ با من!\n#محافظ_شخصی"
+bot.send_message(message.chat.id, txt, reply_to_message_id=message.reply_to_message.message_id)
 
 @bot.message_handler(commands=['zedlink'])
 def zedlink_on(message):
-    if is_admin(message.from_user.id):
-        anti_link_enabled.add(message.chat.id)
-        bot.reply_to(message, "🔗 ضد لینک فعال شد.")
+if is_admin(message.from_user.id):
+anti_link_enabled.add(message.chat.id)
+bot.reply_to(message, "🔗 ضد لینک فعال شد.")
 
 @bot.message_handler(commands=['dzedlink'])
 def zedlink_off(message):
-    if is_admin(message.from_user.id):
-        anti_link_enabled.discard(message.chat.id)
-        bot.reply_to(message, "🔓 ضد لینک غیرفعال شد.")
+if is_admin(message.from_user.id):
+anti_link_enabled.discard(message.chat.id)
+bot.reply_to(message, "🔓 ضد لینک غیرفعال شد.")
 
 @bot.message_handler(commands=['pinn'])
 def pin_msg(message):
-    if is_admin(message.from_user.id) and message.reply_to_message:
-        bot.pin_chat_message(message.chat.id, message.reply_to_message.message_id)
-        bot.reply_to(message, "📌 پین شد.")
+if is_admin(message.from_user.id) and message.reply_to_message:
+bot.pin_chat_message(message.chat.id, message.reply_to_message.message_id)
+bot.reply_to(message, "📌 پین شد.")
 
 @bot.message_handler(commands=['dpinn'])
 def unpin_msg(message):
-    if is_admin(message.from_user.id):
-        bot.unpin_chat_message(message.chat.id)
-        bot.reply_to(message, "📍 از پین خارج شد.")
+if is_admin(message.from_user.id):
+bot.unpin_chat_message(message.chat.id)
+bot.reply_to(message, "📍 از پین خارج شد.")
 
 @bot.message_handler(commands=['ghofle'])
 def lock_chat(message):
-    if is_admin(message.from_user.id):
-        group_lock_enabled.add(message.chat.id)
-        bot.reply_to(message, "🔒 گروه قفل شد.")
+if is_admin(message.from_user.id):
+group_lock_enabled.add(message.chat.id)
+bot.reply_to(message, "🔒 گروه قفل شد.")
 
 @bot.message_handler(commands=['dghofle'])
 def unlock_chat(message):
-    if is_admin(message.from_user.id):
-        group_lock_enabled.discard(message.chat.id)
-        bot.reply_to(message, "🔓 قفل باز شد.")
+if is_admin(message.from_user.id):
+group_lock_enabled.discard(message.chat.id)
+bot.reply_to(message, "🔓 قفل باز شد.")
 
 @bot.message_handler(commands=['del'])
 def delete_messages(message):
-    if not is_admin(message.from_user.id): return
-    try:
-        count = int(message.text.split()[1])
-        for i in range(count):
-            bot.delete_message(message.chat.id, message.message_id - i)
-        bot.reply_to(message, f"✅ {count} پیام پاک شد.")
-    except:
-        bot.reply_to(message, "❌ مثال: /del 10")
+if not is_admin(message.from_user.id): return
+try:
+count = int(message.text.split()[1])
+for i in range(count):
+bot.delete_message(message.chat.id, message.message_id - i)
+bot.reply_to(message, f"✅ {count} پیام پاک شد.")
+except:
+bot.reply_to(message, "❌ مثال: /del 10")
 
 @bot.message_handler(commands=['adminn'])
 def add_admin(message):
-    if message.reply_to_message and is_admin(message.from_user.id):
-        ADMINS.add(message.reply_to_message.from_user.id)
-        bot.reply_to(message, "✅ به مدیران افزوده شد.")
+if message.reply_to_message and is_admin(message.from_user.id):
+ADMINS.add(message.reply_to_message.from_user.id)
+bot.reply_to(message, "✅ به مدیران افزوده شد.")
 
 @bot.message_handler(commands=['dadminn'])
 def remove_admin(message):
-    if is_admin(message.from_user.id) and message.reply_to_message:
-        ADMINS.discard(message.reply_to_message.from_user.id)
-        bot.reply_to(message, "⛔ از مدیران حذف شد.")
+if is_admin(message.from_user.id) and message.reply_to_message:
+ADMINS.discard(message.reply_to_message.from_user.id)
+bot.reply_to(message, "⛔ از مدیران حذف شد.")
 
 @bot.message_handler(commands=['bgo'])
 def bgo(message):
-    if is_admin(message.from_user.id):
-        bot.reply_to(message, "🤖 من آماده‌ام برای محافظت از اربابم!")
+if is_admin(message.from_user.id):
+bot.reply_to(message, "🤖 من آماده‌ام برای محافظت از اربابم!")
 
-# --------------- بخش تگ کردن اعضا ---------------
+--------------- بخش تگ کردن اعضا ---------------
+
 @bot.message_handler(commands=['tagg'])
 def tag_all(message):
-    global tagging
-    if not is_admin(message.from_user.id):
-        return
-    if tagging:
-        bot.reply_to(message, "⚠️ عملیات تگ کردن در حال اجراست، ابتدا با /stopp متوقفش کن.")
-        return
+global tagging
+if not is_admin(message.from_user.id):
+return
+if tagging:
+bot.reply_to(message, "⚠️ عملیات تگ کردن در حال اجراست، ابتدا با /stopp متوقفش کن.")
+return
 
-    tagging = True
-    tag_text = message.text[6:].strip()
-    if message.reply_to_message and tag_text == "":
-        tag_text = message.reply_to_message.text or ""
+tagging = True  
+tag_text = message.text[6:].strip()  
+if message.reply_to_message and tag_text == "":  
+    tag_text = message.reply_to_message.text or ""  
 
-    bot.send_message(message.chat.id, "🛡️ عملیات تگ کردن آغاز شد...")
+bot.send_message(message.chat.id, "🛡️ عملیات تگ کردن آغاز شد...")  
 
-    cur.execute("SELECT DISTINCT user_id, name FROM members WHERE chat_id = ?", (message.chat.id,))
-    members = cur.fetchall()
+cur.execute("SELECT DISTINCT user_id, name FROM members WHERE chat_id = ?", (message.chat.id,))  
+members = cur.fetchall()  
 
-    for user_id, name in members:
-        if not tagging:
-            bot.send_message(message.chat.id, "🛑 عملیات تگ کردن متوقف شد.")
-            break
-        mention = f"[{name}](tg://user?id={user_id})"
-        text = f"{mention} {tag_text}"
-        if message.reply_to_message:
-            bot.send_message(message.chat.id, text, reply_to_message_id=message.reply_to_message.message_id, parse_mode="Markdown")
-        else:
-            bot.send_message(message.chat.id, text, parse_mode="Markdown")
-        time.sleep(0.4)
+for user_id, name in members:  
+    if not tagging:  
+        bot.send_message(message.chat.id, "🛑 عملیات تگ کردن متوقف شد.")  
+        break  
+    mention = f"[{name}](tg://user?id={user_id})"  
+    text = f"{mention} {tag_text}"  
+    if message.reply_to_message:  
+        bot.send_message(message.chat.id, text, reply_to_message_id=message.reply_to_message.message_id, parse_mode="Markdown")  
+    else:  
+        bot.send_message(message.chat.id, text, parse_mode="Markdown")  
+    time.sleep(0.4)  
 
-    tagging = False
-    if tagging == False:
-        bot.send_message(message.chat.id, "✅ عملیات تگ کردن به پایان رسید.")
+tagging = False  
+if tagging == False:  
+    bot.send_message(message.chat.id, "✅ عملیات تگ کردن به پایان رسید.")
 
 @bot.message_handler(commands=['stopp'])
 def stop_tag(message):
-    global tagging
-    if not is_admin(message.from_user.id):
-        return
-    if tagging:
-        tagging = False
-        bot.reply_to(message, "🛑 عملیات تگ کردن متوقف شد.")
-    else:
-        bot.reply_to(message, "⚠️ عملیات تگ کردن فعال نیست.")
+global tagging
+if not is_admin(message.from_user.id):
+return
+if tagging:
+tagging = False
+bot.reply_to(message, "🛑 عملیات تگ کردن متوقف شد.")
+else:
+bot.reply_to(message, "⚠️ عملیات تگ کردن فعال نیست.")
 
 @bot.message_handler(func=lambda message: True)
 def all_messages(message):
-    # ذخیره عضو در دیتابیس
-    save_member(message.chat.id, message.from_user)
+# ذخیره عضو در دیتابیس
+save_member(message.chat.id, message.from_user)
 
-    # پاسخگویی به کلمات یادگرفته شده
-    text = message.text
-    if text:
-        cur.execute("SELECT answer FROM learned WHERE keyword = ?", (text,))
-        row = cur.fetchone()
-        if row:
-            answer = row[0]
-            if text.startswith('#'):
-                # همه می‌تونن استفاده کنن
-                bot.send_message(message.chat.id, answer)
-            else:
-                # فقط مدیران اجازه دارن
-                if is_admin(message.from_user.id):
-                    bot.send_message(message.chat.id, answer)
+اصلاح شده: حذف عضو فقط وقتی ترک داده گروه
 
-# ------------------- بخش یادگیری ---------------------
-waiting_for_answer = {}
-
-@bot.message_handler(commands=['set'])
-def set_learn(message):
-    if not is_admin(message.from_user.id):
-        return
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        bot.reply_to(message, "❌ لطفاً کلمه‌ای برای یادگیری وارد کن. مثال: /set قانون")
-        return
-    keyword = parts[1].strip()
-    waiting_for_answer[message.chat.id] = (message.from_user.id, keyword)
-    bot.reply_to(message, f"📚 در جواب کلمه‌ی «{keyword}» چی می‌خوای یاد بگیرم؟ لطفاً پیام بعدی را بفرست.")
-
-@bot.message_handler(func=lambda m: m.chat.id in waiting_for_answer)
-def save_learned_answer(message):
-    user_id, keyword = waiting_for_answer[message.chat.id]
-    if message.from_user.id != user_id:
-        return
-    answer = message.text.strip()
-    cur.execute("INSERT OR REPLACE INTO learned (keyword, answer) VALUES (?, ?)", (keyword, answer))
-    conn.commit()
-    bot.reply_to(message, f"✅ جواب برای «{keyword}» ذخیره شد.")
-    waiting_for_answer.pop(message.chat.id)
-
-@bot.message_handler(commands=['dset'])
-def delete_learned(message):
-    if not is_admin(message.from_user.id):
-        return
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        bot.reply_to(message, "❌ لطفاً کلمه‌ای برای حذف وارد کن. مثال: /dset قانون")
-        return
-    keyword = parts[1].strip()
-    cur.execute("DELETE FROM learned WHERE keyword = ?", (keyword,))
-    conn.commit()
-    bot.reply_to(message, f"🗑️ کلمه‌ی «{keyword}» و جوابش حذف شد.")
-
-# اصلاح شده: حذف عضو فقط وقتی ترک داده گروه
 @bot.my_chat_member_handler()
 def handle_member_update(message):
-    if message.old_chat_member.status in ['member', 'administrator', 'creator'] and message.new_chat_member.status == 'left':
-        user_id = message.new_chat_member.user.id
-        remove_member(message.chat.id, user_id)
+if message.old_chat_member.status in ['member', 'administrator', 'creator'] and message.new_chat_member.status == 'left':
+user_id = message.new_chat_member.user.id
+remove_member(message.chat.id, user_id)
 
-    if message.chat.id in anti_link_enabled:
-        if message.text and any(x in message.text.lower() for x in ['http', 't.me', 'telegram.me', 'www.']):
-            try:
-                bot.delete_message(message.chat.id, message.message_id)
-            except:
-                pass
-    if message.chat.id in group_lock_enabled:
-        if not is_admin(message.from_user.id):
-            try:
-                bot.delete_message(message.chat.id, message.message_id)
-            except:
-                pass
+if message.chat.id in anti_link_enabled:  
+    if message.text and any(x in message.text.lower() for x in ['http', 't.me', 'telegram.me', 'www.']):  
+        try:  
+            bot.delete_message(message.chat.id, message.message_id)  
+        except:  
+            pass  
+if message.chat.id in group_lock_enabled:  
+    if not is_admin(message.from_user.id):  
+        try:  
+            bot.delete_message(message.chat.id, message.message_id)  
+        except:  
+            pass
 
-# ----------- اضافه کردن وب‌سرور Flask برای keep-alive ------------
+----------- اضافه کردن وب‌سرور Flask برای keep-alive ------------
+
 from flask import Flask
 
-app = Flask(__name__)
+app = Flask(name)
 
 @app.route("/")
 def home():
-    return "ربات محافظتی فعال است ❤"
+return "ربات محافظتی فعال است ❤"
 
 def run_flask():
-    app.run(host="0.0.0.0", port=8080)
+app.run(host="0.0.0.0", port=8080)
 
-# اجرای همزمان فلاسک و ربات
-if __name__ == "__main__":
-    threading.Thread(target=run_flask).start()
-    bot.infinity_polling()
+اجرای همزمان فلاسک و ربات
+
+---------------- ذخیره پاسخ‌های یادگرفته شده ----------------
+
+learned_replies = {}  # {chat_id: {keyword: reply}}
+pending_set = {}      # {user_id: (chat_id, keyword)}
+
+import json
+import os
+
+بارگذاری فایل یادگیری از قبل (اگر وجود داشته باشد)
+
+if os.path.exists("replies.json"):
+with open("replies.json", "r", encoding="utf-8") as f:
+learned_replies = json.load(f)
+
+def save_replies():
+with open("replies.json", "w", encoding="utf-8") as f:
+json.dump(learned_replies, f, ensure_ascii=False)
+
+@bot.message_handler(commands=['set'])
+def handle_set_command(message):
+if not is_admin(message.from_user.id) and not message.text.split(" ")[1].startswith("#"):
+return bot.reply_to(message, "⛔ فقط مدیران می‌تونن این نوع کلمه رو تعریف کنن.")
+
+try:  
+    keyword = message.text.split(" ", 1)[1].strip()  
+    pending_set[message.from_user.id] = (message.chat.id, keyword)  
+    bot.reply_to(message, f"🔁 چه پاسخی برای «{keyword}» بفرستم؟ پیام بعدی‌تو بفرست.")  
+except:  
+    bot.reply_to(message, "❌ مثال: `/set سلام`", parse_mode="Markdown")
+
+@bot.message_handler(commands=['dset'])
+def handle_dset_command(message):
+if not is_admin(message.from_user.id): return
+
+try:  
+    keyword = message.text.split(" ", 1)[1].strip()  
+    chat_id = str(message.chat.id)  
+    if chat_id in learned_replies and keyword in learned_replies[chat_id]:  
+        del learned_replies[chat_id][keyword]  
+        save_replies()  
+        bot.reply_to(message, f"✅ کلمه «{keyword}» و پاسخش حذف شد.")  
+    else:  
+        bot.reply_to(message, "❌ چنین کلمه‌ای تعریف نشده.")  
+except:  
+    bot.reply_to(message, "❌ مثال: `/dset سلام`", parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: True)
+def handle_all_messages(message):
+save_member(message.chat.id, message.from_user)
+
+# بررسی مرحله یادگیری  
+if message.from_user.id in pending_set:  
+    chat_id, keyword = pending_set.pop(message.from_user.id)  
+    chat_id = str(chat_id)  
+
+    if chat_id not in learned_replies:  
+        learned_replies[chat_id] = {}  
+    learned_replies[chat_id][keyword] = message.text  
+    save_replies()  
+    bot.reply_to(message, f"✅ پاسخ برای «{keyword}» ذخیره شد.")  
+    return  
+
+# بررسی پاسخ‌دهی به کلمات  
+chat_id = str(message.chat.id)  
+if chat_id in learned_replies:  
+    for keyword, reply in learned_replies[chat_id].items():  
+        if keyword.startswith("#"):  
+            if keyword in message.text:  
+                return bot.reply_to(message, reply)  
+        else:  
+            if keyword in message.text and is_admin(message.from_user.id):  
+                return bot.reply_to(message, reply)
+
+if name == "main":
+threading.Thread(target=run_flask).start()
+bot.infinity_polling()
+
