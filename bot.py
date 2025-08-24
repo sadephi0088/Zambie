@@ -37,12 +37,13 @@ api_id = 947499
 api_hash = 'cf6a6c0888208ed996e0700e6725f262'
 #======================================
 
-
-#message = await bot.get_messages(event.chat_id,ids=event.reply_to_msg_id)
-#token='732629769:AAEyvZOG3SE0bGvSO-FV57-BEHSXeg-OsVQ' #test
-#proxy = (socks.SOCKS5, '127.0.0.1', 9150)
+# راه‌اندازی ربات
 bot = TelegramClient(token, api_id, api_hash).start(bot_token=token)
-#phone = input('your phone:')
+bot.connect()
+bot.parse_mode = 'html'
+
+# بخش client با شماره و input غیرفعال شد، روی Render نیاز نیست
+"""
 phone = "+917507827600"
 client = TelegramClient(phone, api_id, api_hash)
 client.connect()
@@ -53,14 +54,15 @@ if not client.is_user_authorized():
     except SessionPasswordNeededError:
         client.sign_in(password=input('your Password :'))
 client.parse_mode = 'html'
-#bot = TelegramClient(token, api_id, api_hash,proxy=proxy).start(bot_token=token)
-bot.connect()
-bot.parse_mode = 'html'
+"""
+
+# پیام آنلاین شدن ربات
 try:
     bot.send_message(ch_log,'bot online')
-    client.send_message(ch_log,'helper online')
+    # client.send_message(ch_log,'helper online')  # غیرفعال شد
 except:
     pass
+
 redis.set('tag_white',str(['off']))
 bots= [198626752,175844556]
 bot_list = [
