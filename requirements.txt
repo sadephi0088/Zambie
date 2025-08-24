@@ -1,1 +1,8 @@
 telethon
+redis
+requests
+aiohttp
+python-dotenv
+schedule
+flask
+gunicorn
