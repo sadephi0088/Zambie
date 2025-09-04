@@ -1,268 +1,368 @@
-# -*- coding: utf-8 -*-
-import asyncio
-import random
+import telebot
 import time
-from typing import Dict, List
+import threading
+import sqlite3
+import json
+import os
+from flask import Flask
 
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    ChatPermissions,
-)
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    filters,
-)
+TOKEN = '8049022187:AAEoR_IorwWZ8KaH_UMvCo2fa1LjTqhnlWY'
+OWNER_ID = 7341748124
+ADMINS = {OWNER_ID}
+bot = telebot.TeleBot(TOKEN)
 
-# ===== تنظیمات (با توکن و آیدی تو) =====
-CONFIG = {
-    "token": "7583760165:AAHzGN-N7nyHgFoWt9oamd2tgO7pLkKFWFs",  # توکن
-    "owner_id": 7341748124,  # آیدی عددی
-    "use_webhook": False,    # این نسخه روی polling اجرا می‌شود
-}
+doshman_users = set()
+muted_users = set()
+anti_link_enabled = set()
+group_lock_enabled = set()
+tagging = False  # کنترل تگ کردن
 
-# ===== پیام‌ها و لحن =====
-def sig(msg: str) -> str:
-    return f"{msg} :|"
+# دیتابیس ذخیره اعضای گروه
+conn = sqlite3.connect("members.db", check_same_thread=False)
+cur = conn.cursor()
+cur.execute("CREATE TABLE IF NOT EXISTS members (chat_id INTEGER, user_id INTEGER, name TEXT)")
+conn.commit()
 
-def warm(msg: str) -> str:
-    return f"{msg} ⚜️"
+def save_member(chat_id, user):
+    cur.execute("INSERT OR IGNORE INTO members (chat_id, user_id, name) VALUES (?, ?, ?)",
+                (chat_id, user.id, user.first_name))
+    conn.commit()
 
-lines = {
-    "welcome": lambda name: sig(f"نامت ثبت شد {name}. آرام قدم بردار؛ اینجا قانون تنفس می‌کشد."),
-    "soft_warn": sig("کلمه‌هایت زیاد شد. سه گام عقب بنشین."),
-    "mute_edict": sig("سکوت تا سپیده. وقتی بازگشتی، کمتر فریاد بزن."),
-    "loyal": warm("اشاره کنی، انجام می‌شود. بقیه فقط می‌بینند."),
-    "summon_owner": warm("حاضرم. فرمان بده."),
-    "summon_other": sig("در سکوت بایست. من بیدارم."),
-    "oath": sig("این‌جا قانون تنفس می‌کشد. می‌پذیری؟"),
-    "oath_accepted": sig("پذیرفته شد. قانون حافظ توست، نه زنجیرت."),
-    "edict_header": sig("حکم صادر شد."),
-}
+def remove_member(chat_id, user_id):
+    cur.execute("DELETE FROM members WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
+    conn.commit()
 
-# ===== حالت‌ها و وضعیت هر چت =====
-MODES = ["warden", "vow", "edict"]
-chat_state: Dict[int, Dict] = {}  # chat_id -> { mode: str }
+doshman_msgs = [
+    "خفه شو دیگه🤣", "سیکتر کن😅", "نبینمت اسکول😂", "برو بچه کیونی🤣🤣", "سگ پدر😂",
+    "روانی ریقو🤣", "شاشو😂", "از اینجا تا اونجا توی کو‌..نت😂", "ریدم دهنت...😂",
+    "گمشو دیگه بهت خندیدم پرو شدی", "سگو کی باشی😂😂😅", "اسکول یه وری", "ریدم تو قیافت", "شاشیدم دهنت😂"
+]
 
-def ensure_chat(cid: int) -> Dict:
-    if cid not in chat_state:
-        chat_state[cid] = {"mode": "warden"}
-    return chat_state[cid]
+help_text = """☣✨ 𝑷𝑶𝑾𝑬𝑹 𝑷𝑨𝑵𝑬𝑳 ✨☣
+🛡️ 𝗖𝗼𝗿𝘁𝗶𝘀 𝗥𝟮𝟬𝟬 – ربات محافظتی هوشمند
 
-def get_mode(cid: int) -> str:
-    return ensure_chat(cid)["mode"]
+⚠️ «من ایجاد شدم تا هر مانعی در مسیر شما را نابود کنم…» 🔪🩸
 
-def set_mode(cid: int, mode: str) -> None:
-    if mode not in MODES:
-        raise ValueError("invalid mode")
-    ensure_chat(cid)["mode"] = mode
+━━━━━━━━━━━━━━━
+🧠 | سیستم یادگیری و پاسخ خودکار
+   ▸ /set "کلمه"   ➝ تعریف پاسخ
+   ▸ /dset "کلمه" ➝ حذف پاسخ
+💡 کلمات با # برای همه قابل استفاده‌اند
 
-# ===== ضداسپم ساده =====
-user_msgs: Dict[int, List[float]] = {}  # user_id -> timestamps
-chat_msgs: Dict[int, List[float]] = {}  # chat_id -> timestamps
+━━━━━━━━━━━━━━━
+🛡️ | دستورات محافظت خشن
+   ▸ /d       👁‍🗨جای تو حرف می‌زنم
+   ▸ /spam    ☢️ رگبار پیام + تعداد
+   ▸ /doshman  💥شروع حمله به هدف
+   ▸ /mutee   🧨 سکوت مطلق هدف
+   ▸ /sik     ☠️ اخراج و حذف هدف
 
-USER_POINTS = 6
-USER_WINDOW = 8.0
-CHAT_POINTS = 60
-CHAT_WINDOW = 10.0
+━━━━━━━━━━━━━━━
+🎯 | دستورات واکنشی
+   ▸ /idd   📯 شناسایی و گزارش هدف
+   ▸ /tagg  🚨 صدا زدن همه اعضا
+   ▸ /pinn 📌 پین کردن پیام
+   ▸ /del  🧽 حذف پیام + تعداد
 
-def _within_window(times: List[float], window: float) -> List[float]:
-    now = time.time()
-    return [t for t in times if now - t < window]
+━━━━━━━━━━━━━━━
+🕷️ | فرمان‌های ویژه سازنده
+   ▸ /adminn 🧛 افزودن محافظت
+   ▸ /bgo    🕯️ فلسفه وجودی
 
-async def rate_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """True = اجازه عبور؛ False = مسدود شد و پاسخ داده شد."""
-    if update.effective_user is None or update.effective_chat is None:
-        return True
+━━━━━━━━━━━━━━━
+🔱 𝑽𝒆𝒓𝒔𝒊𝒐𝒏: 200.0
+"""
 
-    uid = update.effective_user.id
-    cid = update.effective_chat.id
-    now = time.time()
+def is_admin(user_id):
+    return user_id in ADMINS
 
-    # per-user
-    lst_u = user_msgs.get(uid, [])
-    lst_u = _within_window(lst_u, USER_WINDOW)
-    lst_u.append(now)
-    user_msgs[uid] = lst_u
-    if len(lst_u) > USER_POINTS:
-        try:
-            await update.effective_chat.send_message(lines["soft_warn"])
-            # تلاش برای حذف پیام (اگر ربات ادمین باشد)
-            if update.effective_message:
-                await context.bot.delete_message(chat_id=cid, message_id=update.effective_message.message_id)
-        except Exception:
-            pass
-        return False
+# ---------- دستورات معمولی -----------
+@bot.message_handler(commands=['help'])
+def send_help(message):
+    if is_admin(message.from_user.id):
+        bot.reply_to(message, help_text)
 
-    # per-chat
-    lst_c = chat_msgs.get(cid, [])
-    lst_c = _within_window(lst_c, CHAT_WINDOW)
-    lst_c.append(now)
-    chat_msgs[cid] = lst_c
-    if len(lst_c) > CHAT_POINTS:
-        try:
-            await update.effective_chat.send_message(sig("آرام‌تر. نفس بگیر."))
-            if update.effective_message:
-                await context.bot.delete_message(chat_id=cid, message_id=update.effective_message.message_id)
-        except Exception:
-            pass
-        return False
+@bot.message_handler(commands=['d'])
+def d_handler(message):
+    if not is_admin(message.from_user.id): return
+    text = message.text[3:].strip()
+    if text:
+        try: bot.delete_message(message.chat.id, message.message_id)
+        except: pass
+        if message.reply_to_message:
+            bot.send_message(message.chat.id, text, reply_to_message_id=message.reply_to_message.message_id)
+        else:
+            bot.send_message(message.chat.id, text)
+    else:
+        bot.reply_to(message, "❌ مثال: `/d سلام`", parse_mode='Markdown')
 
-    return True
-
-# ===== هندلرها =====
-async def on_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await rate_guard(update, context):
-        return
-    name = update.effective_user.first_name if update.effective_user else "مسافر"
-    await update.effective_chat.send_message(lines["welcome"](name))
-
-async def on_summon(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await rate_guard(update, context):
-        return
-    is_owner = (update.effective_user and update.effective_user.id == CONFIG["owner_id"])
-    await update.effective_chat.send_message(lines["summon_owner"] if is_owner else lines["summon_other"])
-
-async def on_oath(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await rate_guard(update, context):
-        return
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("می‌پذیرم", callback_data="oath_accept")]])
-    await update.effective_chat.send_message(lines["oath"], reply_markup=kb)
-
-async def on_oath_accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@bot.message_handler(commands=['spam'])
+def spam_handler(message):
+    if not is_admin(message.from_user.id): return
     try:
-        await update.callback_query.answer("پذیرفته شد")
-        await update.callback_query.edit_message_text(lines["oath_accepted"])
-    except Exception:
-        pass
+        _, count, text = message.text.split(" ", 2)
+        count = int(count)
+        if count > 100:
+            return bot.reply_to(message, "❌ حداکثر 100 بار.")
+        for _ in range(count):
+            bot.send_message(message.chat.id, text)
+            time.sleep(0.3)
+    except:
+        bot.reply_to(message, "❌ مثال: `/spam 3 سلام`", parse_mode='Markdown')
 
-async def on_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await rate_guard(update, context):
-        return
-    cid = update.effective_chat.id
-    args = context.args if context.args else []
-    if not args:
-        # نمایش دکمه‌ها
-        buttons = [
-            [InlineKeyboardButton(m.upper(), callback_data=f"mode_{m}")]
-            for m in MODES
-        ]
-        await update.effective_chat.send_message(
-            sig(f"حالت جاری: {get_mode(cid)}. یکی را انتخاب کن:"),
-            reply_markup=InlineKeyboardMarkup(buttons),
-        )
-        return
-    mode = args[0].strip().lower()
+@bot.message_handler(commands=['doshman'])
+def doshman_on(message):
+    if is_admin(message.from_user.id) and message.reply_to_message:
+        doshman_users.add(message.reply_to_message.from_user.id)
+        bot.reply_to(message, "☠️ دشمن فعال شد.")
+
+@bot.message_handler(commands=['ddoshman'])
+def doshman_off(message):
+    if is_admin(message.from_user.id) and message.reply_to_message:
+        doshman_users.discard(message.reply_to_message.from_user.id)
+        bot.reply_to(message, "✅ دشمن غیرفعال شد.")
+
+@bot.message_handler(func=lambda m: m.from_user.id in doshman_users)
+def reply_doshman(message):
+    text = doshman_msgs[int(time.time()*1000) % len(doshman_msgs)]
+    bot.reply_to(message, text)
+
+@bot.message_handler(commands=['mutee'])
+def mutee(message):
+    if is_admin(message.from_user.id) and message.reply_to_message:
+        bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=False)
+        bot.reply_to(message, "🔇 کاربر سکوت شد.")
+
+@bot.message_handler(commands=['dmutee'])
+def unmutee(message):
+    if is_admin(message.from_user.id) and message.reply_to_message:
+        bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=True)
+        bot.reply_to(message, "🔊 سکوت برداشته شد.")
+
+@bot.message_handler(commands=['sik'])
+def ban_user(message):
+    if is_admin(message.from_user.id) and message.reply_to_message:
+        bot.ban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
+        bot.reply_to(message, "🚫 کاربر حذف شد.")
+
+@bot.message_handler(commands=['dsik'])
+def unban_user(message):
+    if is_admin(message.from_user.id) and message.reply_to_message:
+        bot.unban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
+        bot.reply_to(message, "✅ از لیست بن‌شدگان حذف شد.")
+
+@bot.message_handler(commands=['idd'])
+def id_info(message):
+    if is_admin(message.from_user.id) and message.reply_to_message:
+        u = message.reply_to_message.from_user
+        text = f"👤 نام: {u.first_name}\n🆔 آیدی عددی: `{u.id}`\n📎 یوزرنیم: @{u.username if u.username else 'ندارد'}"
+        bot.reply_to(message, text, parse_mode='Markdown')
+
+@bot.message_handler(commands=['m'])
+def introduce_me(message):
+    if is_admin(message.from_user.id) and message.reply_to_message:
+        txt = "🛡️ من دستیار محافظتی اختصاصی هستم...\nهر تهدیدی، یعنی اعلام جنگ با من!\n#محافظ_شخصی"
+        bot.send_message(message.chat.id, txt, reply_to_message_id=message.reply_to_message.message_id)
+
+@bot.message_handler(commands=['zedlink'])
+def zedlink_on(message):
+    if is_admin(message.from_user.id):
+        anti_link_enabled.add(message.chat.id)
+        bot.reply_to(message, "🔗 ضد لینک فعال شد.")
+
+@bot.message_handler(commands=['dzedlink'])
+def zedlink_off(message):
+    if is_admin(message.from_user.id):
+        anti_link_enabled.discard(message.chat.id)
+        bot.reply_to(message, "🔓 ضد لینک غیرفعال شد.")
+
+@bot.message_handler(commands=['pinn'])
+def pin_msg(message):
+    if is_admin(message.from_user.id) and message.reply_to_message:
+        bot.pin_chat_message(message.chat.id, message.reply_to_message.message_id)
+        bot.reply_to(message, "📌 پین شد.")
+
+@bot.message_handler(commands=['dpinn'])
+def unpin_msg(message):
+    if is_admin(message.from_user.id):
+        bot.unpin_chat_message(message.chat.id)
+        bot.reply_to(message, "📍 از پین خارج شد.")
+
+@bot.message_handler(commands=['ghofle'])
+def lock_chat(message):
+    if is_admin(message.from_user.id):
+        group_lock_enabled.add(message.chat.id)
+        bot.reply_to(message, "🔒 گروه قفل شد.")
+
+@bot.message_handler(commands=['dghofle'])
+def unlock_chat(message):
+    if is_admin(message.from_user.id):
+        group_lock_enabled.discard(message.chat.id)
+        bot.reply_to(message, "🔓 قفل باز شد.")
+
+@bot.message_handler(commands=['del'])
+def delete_messages(message):
+    if not is_admin(message.from_user.id): return
     try:
-        set_mode(cid, mode)
-        await update.effective_chat.send_message(sig(f"حالت به {mode.upper()} تغییر کرد."))
-    except ValueError:
-        await update.effective_chat.send_message(sig(f"حالت نامعتبر. گزینه‌ها: {', '.join(MODES)}"))
+        count = int(message.text.split()[1])
+        for i in range(count):
+            bot.delete_message(message.chat.id, message.message_id - i)
+        bot.reply_to(message, f"✅ {count} پیام پاک شد.")
+    except:
+        bot.reply_to(message, "❌ مثال: /del 10")
 
-async def on_mode_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        query = update.callback_query
-        if not query or not query.data:
-            return
-        if not query.message:
-            return
-        cid = query.message.chat_id
-        if query.data.startswith("mode_"):
-            mode = query.data.split("_", 1)[1]
-            set_mode(cid, mode)
-            await query.edit_message_text(sig(f"حالت به {mode.upper()} تغییر کرد."))
-    except Exception:
-        pass
+@bot.message_handler(commands=['adminn'])
+def add_admin(message):
+    if message.reply_to_message and is_admin(message.from_user.id):
+        ADMINS.add(message.reply_to_message.from_user.id)
+        bot.reply_to(message, "✅ به مدیران افزوده شد.")
 
-async def on_edict(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await rate_guard(update, context):
+@bot.message_handler(commands=['dadminn'])
+def remove_admin(message):
+    if is_admin(message.from_user.id) and message.reply_to_message:
+        ADMINS.discard(message.reply_to_message.from_user.id)
+        bot.reply_to(message, "⛔ از مدیران حذف شد.")
+
+@bot.message_handler(commands=['bgo'])
+def bgo(message):
+    if is_admin(message.from_user.id):
+        bot.reply_to(message, "🤖 من آماده‌ام برای محافظت از اربابم!")
+
+# --------------- بخش تگ کردن اعضا ---------------
+@bot.message_handler(commands=['tagg'])
+def tag_all(message):
+    global tagging
+    if not is_admin(message.from_user.id):
         return
-    cid = update.effective_chat.id
-    mode = get_mode(cid)
-    if mode != "edict":
-        await update.effective_chat.send_message(sig("در این حالت، حکم خاموش است."))
+    if tagging:
+        bot.reply_to(message, "⚠️ عملیات تگ کردن در حال اجراست، ابتدا با /stopp متوقفش کن.")
         return
-    text = " ".join(context.args) if context.args else "بدون شرح."
-    await update.effective_chat.send_message(f"{lines['edict_header']}\n— {text}")
 
-async def on_veil(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await rate_guard(update, context):
+    tagging = True
+    tag_text = message.text[6:].strip()
+    if message.reply_to_message and tag_text == "":
+        tag_text = message.reply_to_message.text or ""
+
+    bot.send_message(message.chat.id, "🛡️ عملیات تگ کردن آغاز شد...")
+
+    cur.execute("SELECT DISTINCT user_id, name FROM members WHERE chat_id = ?", (message.chat.id,))
+    members = cur.fetchall()
+
+    for user_id, name in members:
+        if not tagging:
+            bot.send_message(message.chat.id, "🛑 عملیات تگ کردن متوقف شد.")
+            break
+        mention = f"[{name}](tg://user?id={user_id})"
+        text = f"{mention} {tag_text}"
+        if message.reply_to_message:
+            bot.send_message(message.chat.id, text, reply_to_message_id=message.reply_to_message.message_id, parse_mode="Markdown")
+        else:
+            bot.send_message(message.chat.id, text, parse_mode="Markdown")
+        time.sleep(0.4)
+
+    tagging = False
+    if tagging == False:
+        bot.send_message(message.chat.id, "✅ عملیات تگ کردن به پایان رسید.")
+
+@bot.message_handler(commands=['stopp'])
+def stop_tag(message):
+    global tagging
+    if not is_admin(message.from_user.id):
         return
-    msg = update.effective_message
-    if not msg or not msg.reply_to_message:
-        await update.effective_chat.send_message(sig("روی پیام هدف ریپلای کن و /veil بزن."))
+    if tagging:
+        tagging = False
+        bot.reply_to(message, "🛑 عملیات تگ کردن متوقف شد.")
+    else:
+        bot.reply_to(message, "⚠️ عملیات تگ کردن فعال نیست.")
+
+# ------------- بخش یادگیری پاسخ‌ها ----------------
+learned_replies = {}  # {chat_id: {keyword: reply}}
+pending_set = {}      # {user_id: (chat_id, keyword)}
+
+# بارگذاری پاسخ‌های ذخیره شده (اگر وجود داشته باشد)
+if os.path.exists("replies.json"):
+    with open("replies.json", "r", encoding="utf-8") as f:
+        learned_replies = json.load(f)
+
+def save_replies():
+    with open("replies.json", "w", encoding="utf-8") as f:
+        json.dump(learned_replies, f, ensure_ascii=False)
+
+@bot.message_handler(commands=['set'])
+def handle_set_command(message):
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "⛔ فقط مدیران می‌تونن کلمات بدون # رو تعریف کنند.")
+    parts = message.text.split(" ", 1)
+    if len(parts) < 2 or parts[1].strip() == "":
+        return bot.reply_to(message, "❌ مثال: `/set سلام`", parse_mode="Markdown")
+    keyword = parts[1].strip()
+    pending_set[message.from_user.id] = (message.chat.id, keyword)
+    bot.reply_to(message, f"🔁 لطفاً پاسخ برای کلمه «{keyword}» را در پیام بعدی ارسال کن.")
+
+@bot.message_handler(commands=['dset'])
+def handle_dset_command(message):
+    if not is_admin(message.from_user.id):
         return
-    target = msg.reply_to_message.from_user
-    if not target:
-        await update.effective_chat.send_message(sig("هدف نامشخص است."))
+    parts = message.text.split(" ", 1)
+    if len(parts) < 2 or parts[1].strip() == "":
+        return bot.reply_to(message, "❌ مثال: `/dset سلام`", parse_mode="Markdown")
+    keyword = parts[1].strip()
+    chat_id = str(message.chat.id)
+    if chat_id in learned_replies and keyword in learned_replies[chat_id]:
+        del learned_replies[chat_id][keyword]
+        save_replies()
+        bot.reply_to(message, f"✅ پاسخ برای کلمه «{keyword}» حذف شد.")
+    else:
+        bot.reply_to(message, "❌ چنین کلمه‌ای تعریف نشده است.")
+
+@bot.message_handler(func=lambda message: True)
+def handle_all_messages(message):
+    # ذخیره عضو در دیتابیس
+    save_member(message.chat.id, message.from_user)
+
+    # اگر منتظر پاسخ هستیم (مرحله set)
+    if message.from_user.id in pending_set:
+        chat_id, keyword = pending_set.pop(message.from_user.id)
+        chat_id = str(chat_id)
+        if chat_id not in learned_replies:
+            learned_replies[chat_id] = {}
+        learned_replies[chat_id][keyword] = message.text
+        save_replies()
+        bot.reply_to(message, f"✅ پاسخ برای «{keyword}» ذخیره شد.")
         return
-    try:
-        perms = ChatPermissions(can_send_messages=False)
-        await context.bot.restrict_chat_member(
-            chat_id=update.effective_chat.id,
-            user_id=target.id,
-            permissions=perms,
-        )
-        await update.effective_chat.send_message(lines["mute_edict"])
-    except Exception:
-        await update.effective_chat.send_message(sig("اجازهٔ کافی برای سکوت ندارم."))
 
-async def on_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await rate_guard(update, context):
-        return
-    cid = update.effective_chat.id
-    await update.effective_chat.send_message(sig(f"mode={get_mode(cid)}"))
+    # بررسی و پاسخ خودکار به کلمات تعریف شده
+    chat_id = str(message.chat.id)
+    if chat_id in learned_replies:
+        for keyword, reply in learned_replies[chat_id].items():
+            if keyword.startswith("#"):  # اگر هشتگ داشت همه می‌تونن جواب بگیرن
+                if keyword in message.text:
+                    bot.reply_to(message, reply)
+                    return
+            else:  # اگر بدون هشتگ بود فقط مدیران می‌تونن جواب بگیرن
+                if keyword in message.text and message.from_user.id in ADMINS:
+                    bot.reply_to(message, reply)
+                    return
 
-async def on_message_tone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # لحن گرم برای مالک به‌صورت تصادفی
-    if update.effective_user and update.effective_user.id == CONFIG["owner_id"]:
-        if random.random() < 0.02:
-            try:
-                await update.effective_chat.send_message(warm("دیدم. به چشم."))
-            except Exception:
-                pass
+# حذف عضو از دیتابیس وقتی ترک میده گروه
+@bot.my_chat_member_handler()
+def handle_member_update(message):
+    if message.old_chat_member.status in ['member', 'administrator', 'creator'] and message.new_chat_member.status == 'left':
+        user_id = message.new_chat_member.user.id
+        remove_member(message.chat.id, user_id)
 
-# ===== اجرای اپلیکیشن =====
-async def main():
-    app = (
-        ApplicationBuilder()
-        .token(CONFIG["token"])
-        .build()
-    )
 
-    # فرمان‌ها
-    app.add_handler(CommandHandler("start", on_start))
-    app.add_handler(CommandHandler("summon", on_summon))
-    app.add_handler(CommandHandler("oath", on_oath))
-    app.add_handler(CallbackQueryHandler(on_oath_accept, pattern=r"^oath_accept$"))
+# ----------- اضافه کردن وب‌سرور Flask برای keep-alive ------------
+app = Flask(__name__)
 
-    app.add_handler(CommandHandler("mode", on_mode))
-    app.add_handler(CallbackQueryHandler(on_mode_button, pattern=r"^mode_"))
+@app.route("/")
+def home():
+    return "ربات محافظتی فعال است ❤"
 
-    app.add_handler(CommandHandler("edict", on_edict))
-    app.add_handler(CommandHandler("veil", on_veil))
-    app.add_handler(CommandHandler("status", on_status))
+def run_flask():
+    app.run(host="0.0.0.0", port=8080)
 
-    # پیام‌های عمومی برای لحن مالک
-    app.add_handler(MessageHandler(filters.ALL, on_message_tone))
-
-    # Polling
-    await app.initialize()
-    await app.start()
-    print("[legend-bot] polling started (python)")
-    try:
-        await asyncio.Event().wait()
-    finally:
-        await app.stop()
-        await app.shutdown()
-
+# اجرای همزمان فلاسک و ربات
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        pass
+    threading.Thread(target=run_flask).start()
+    bot.infinity_polling()
