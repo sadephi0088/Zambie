@@ -114,7 +114,7 @@ def spam_handler(message):
 def doshman_on(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
         doshman_users.add(message.reply_to_message.from_user.id)
-        bot.reply_to(message, "☠️ به دستور شما دشمن فعال شد.")
+        bot.reply_to(message, "☠️ دشمن فعال شد.")
 
 @bot.message_handler(commands=['ddoshman'])
 def doshman_off(message):
@@ -131,7 +131,7 @@ def reply_doshman(message):
 def mutee(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
         bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id, can_send_messages=False)
-        bot.reply_to(message, "🔇 به فرمان شما کاربر سکوت شد.")
+        bot.reply_to(message, "🔇 کاربر سکوت شد.")
 
 @bot.message_handler(commands=['dmutee'])
 def unmutee(message):
@@ -180,7 +180,7 @@ def zedlink_off(message):
 def pin_msg(message):
     if is_admin(message.from_user.id) and message.reply_to_message:
         bot.pin_chat_message(message.chat.id, message.reply_to_message.message_id)
-        bot.reply_to(message, "📌دستورت پین شد.")
+        bot.reply_to(message, "📌 پین شد.")
 
 @bot.message_handler(commands=['dpinn'])
 def unpin_msg(message):
@@ -215,7 +215,7 @@ def delete_messages(message):
 def add_admin(message):
     if message.reply_to_message and is_admin(message.from_user.id):
         ADMINS.add(message.reply_to_message.from_user.id)
-        bot.reply_to(message, "✅ اکنون میتواند به من دستور بدهد.")
+        bot.reply_to(message, "✅ به مدیران افزوده شد.")
 
 @bot.message_handler(commands=['dadminn'])
 def remove_admin(message):
@@ -226,10 +226,7 @@ def remove_admin(message):
 @bot.message_handler(commands=['bgo'])
 def bgo(message):
     if is_admin(message.from_user.id):
-        bot.reply_to(message, "🔥🤖 من آفریده شدم برای نابودی دشمنانت،
-🩸 خون می‌ریزم برای آرامش تو، اربابم!
-⚔️ سایه‌ام، شمشیرت خواهد بود…
-🐺 هیچ‌کس توان ایستادن مقابلم را ندارد!")
+        bot.reply_to(message, "🤖 من آماده‌ام برای محافظت از اربابم!")
 
 # --------------- بخش تگ کردن اعضا ---------------
 @bot.message_handler(commands=['tagg'])
@@ -354,6 +351,21 @@ def handle_member_update(message):
         user_id = message.new_chat_member.user.id
         remove_member(message.chat.id, user_id)
 
+# چک کردن ضد لینک
+@bot.message_handler(func=lambda m: True)
+def check_links_and_lock(message):
+    if message.chat.id in anti_link_enabled:
+        if message.text and any(x in message.text.lower() for x in ['http', 't.me', 'telegram.me', 'www.']):
+            try:
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
+    if message.chat.id in group_lock_enabled:
+        if not is_admin(message.from_user.id):
+            try:
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
 
 # ----------- اضافه کردن وب‌سرور Flask برای keep-alive ------------
 app = Flask(__name__)
