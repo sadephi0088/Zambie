@@ -7,3 +7,4 @@ schedule
 flask
 gunicorn
 pyTelegramBotAPI
+python-telegram-bot==21.6
